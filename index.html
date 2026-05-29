@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Racing Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="main-menu" class="overlay active">
+        <h1>Procedural Racing</h1>
+        <div class="menu-options">
+            <button id="btn-city">City Mode</button>
+            <button id="btn-mountain">Mountain Mode</button>
+        </div>
+    </div>
+
+    <div id="hud" class="overlay">
+        <div class="hud-item">Speed: <span id="hud-speed">0</span> MPH</div>
+        <div class="hud-item">Score: <span id="hud-score">0</span></div>
+        <div class="hud-item">Mode: <span id="hud-mode">City</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="js/road.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/menu.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
