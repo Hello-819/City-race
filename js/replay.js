@@ -64,7 +64,7 @@ export function carChannel(car) {
             const b = rig.body.quaternion;
             buf[o++] = b.x; buf[o++] = b.y; buf[o++] = b.z; buf[o++] = b.w;
             buf[o++] = car.veh.wheelSpin[0]; buf[o++] = car.veh.wheelSpin[1]; buf[o++] = car.veh.steer; buf[o++] = car.veh.skid;
-            buf[o++] = car.health; buf[o++] = car.veh.speed;
+            buf[o++] = 100; buf[o++] = car.veh.speed;
             return o;
         },
         apply(a, b, t, o) {
@@ -144,13 +144,12 @@ export class ReplayDirector {
         rec.apply(this.t, dt * this.speed);
         for (const e of rec.events) {
             const key = e.t + e.type;
-            if (e.t <= this.t && !this.firedEvents.has(key)) { this.firedEvents.add(key); if (e.type === 'explosion') effects.explode(e.pos, e.scale || 1); }
+            if (e.t <= this.t && !this.firedEvents.has(key)) { this.firedEvents.add(key);  }
         }
         const car = this.car, rig = car.rig;
         rig.root.updateMatrixWorld(true);
         if (this.playing) {
             effects.tyres(dt * this.speed, rig, car.replaySkid || 0, car.replaySpeed || 0);
-            effects.damage(dt * this.speed, rig, car.replayHealth ?? 100, car.enginePos);
         }
         effects.update(dt * this.speed);
 

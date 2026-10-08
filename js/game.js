@@ -20,7 +20,7 @@ export class GameRules {
         this.driftActive = 0;
         this.nextCheckpointS = null;
         this.over = false;
-        this.endReason = null;   // 'time' | 'finish' | 'busted' | 'wrecked'
+        this.endReason = null;   // 'time' | 'finish' | 'busted'
         this.lastS = null;
         this.finishS = kind === 'city' ? 5000 : 4500;
         this.finished = false;

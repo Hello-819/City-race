@@ -18,10 +18,12 @@ export class Pedestrians {
         if (!this.enabled) return;
         for (let i = 0; i < count; i++) {
             const p = createPerson(this.rng);
+            p.baseY = p.model.position.y;
             scene.add(p.root);
             this.peds.push({
                 ...p, state: WALK, s: -1e9, d: 0, dir: 1, speed: 1.3, timer: 0, crossTo: 0, anim: 'Walk',
-                x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, spin: 0, spinAxis: new THREE.Vector3(1, 0, 0), downT: 0, hitBy: null, flipped: 0, heading: 0,
+                x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, spin: 0, spinAxis: new THREE.Vector3(1, 0, 0), downT: 0, hitBy: null, heading: 0,
+                fleeCool: 0, settled: false,
             });
         }
         this.events = [];
@@ -29,7 +31,8 @@ export class Pedestrians {
         this.v3 = new THREE.Vector3();
     }
 
-    sidewalkD(side, lane) { const P = this.road.p; return side * (P.roadHalf + 1.3 + lane * 1.5); }
+    // two walking lines on each sidewalk, clear of lamp posts and trees (which sit at the kerb)
+    sidewalkD(side, lane) { const P = this.road.p; return side * (P.roadHalf + 1.9 + lane * 1.2); }
 
     _spawn(p, playerS, initial) {
         const r = this.rng;
@@ -43,7 +46,8 @@ export class Pedestrians {
         p.timer = r.range(2, 8);
         p.root.visible = true;
         p.root.rotation.set(0, 0, 0);
-        p.hitBy = null;
+        p.model.position.y = p.baseY;
+        p.hitBy = null; p.settled = false; p.fleeCool = 0;
         this._anim(p, p.state === IDLE ? 'Idle' : 'Walk', true);
     }
 
@@ -71,7 +75,7 @@ export class Pedestrians {
         const road = this.road, P = road.p, r = this.rng;
         for (const p of this.peds) {
             if (p.state !== DOWN && (p.s < playerS - 150 || p.s > playerS + 520)) { this._spawn(p, playerS, false); continue; }
-            if (p.state === DOWN && (p.s < playerS - 200 || p.downT > 25)) { this._spawn(p, playerS, false); continue; }
+            if (p.state === DOWN && (p.s < playerS - 200 || p.downT > 45)) { this._spawn(p, playerS, false); continue; }
             if (!p.root.visible) continue;
 
             if (p.state !== DOWN) this._think(dt, p, cars, traffic);
@@ -104,22 +108,34 @@ export class Pedestrians {
     _think(dt, p, cars, traffic) {
         const road = this.road, P = road.p, r = this.rng;
         p.timer -= dt;
-        // flee from a fast car heading our way
-        let threat = null;
-        for (const c of cars) {
-            const v = c.veh;
-            const speed = Math.hypot(v.vx, v.vy);
-            if (speed < 6 || Math.abs(c.s - p.s) > 30) continue;
-            const dx = p.x - v.x, dy = p.y - v.y;
-            const along = (dx * v.vx + dy * v.vy) / speed;
-            const lateral = Math.abs(-dx * v.vy + dy * v.vx) / speed;
-            if (along > 0 && along < 18 + speed * 0.4 && lateral < 3.2) { threat = c; break; }
-        }
-        if (threat && p.state !== FLEE) {
-            p.state = FLEE; p.timer = 1.6;
-            const v = threat.veh;
-            const lat = (-(p.x - v.x) * v.vy + (p.y - v.y) * v.vx);
-            p.fleeDir = lat >= 0 ? 1 : -1;     // run to the side we are already on, relative to the car
+        // get out of the way of a car coming straight at us
+        p.fleeCool -= dt;
+        if (p.state !== FLEE && p.fleeCool <= 0) {
+            for (const c of cars) {
+                const v = c.veh;
+                const speed = Math.hypot(v.vx, v.vy);
+                if (speed < 4 || Math.abs(c.s - p.s) > 25) continue;
+                const dx = p.x - v.x, dy = p.y - v.y;
+                const along = (dx * v.vx + dy * v.vy) / speed;
+                const lateral = (-dx * v.vy + dy * v.vx) / speed;    // + = to the car's left
+                if (along > 2 && along < 4 + speed * 0.3 && Math.abs(lateral) < 2.2) {
+                    p.fleeCool = 4;
+                    if (this.rng.chance(0.5)) break;          // frozen in panic
+                    // step to whichever side is farther from the car's line, never past the building line
+                    const onWalk = Math.abs(p.d) > P.roadHalf;
+                    const loc = this.road.nearest(v.x, v.y, {});
+                    const carD = loc ? loc.d : 0;
+                    if (onWalk) {
+                        const side = Math.sign(p.d);
+                        const inner = side * (P.roadHalf + 1.0), outer = side * (P.sidewalkOuter - 0.6);
+                        p.fleeTo = Math.abs(inner - carD) > Math.abs(outer - carD) ? inner : outer;
+                    } else {
+                        p.fleeTo = (carD > p.d ? -1 : 1) * this.sidewalkD(1, 0);   // run for the far kerb
+                    }
+                    p.state = FLEE; p.timer = 2.5; p.fleeCool = 4;
+                    break;
+                }
+            }
         }
         switch (p.state) {
             case WALK: {
@@ -158,12 +174,17 @@ export class Pedestrians {
                 break;
             }
             case FLEE: {
+                const dir = Math.sign(p.fleeTo - p.d);
+                p.fleeDir = dir || 1;
+                p.d += dir * 3.0 * dt;
                 this._anim(p, 'Run');
-                const target = p.fleeDir * (P.sidewalkOuter - 0.6);
-                const side = Math.sign(target - p.d);
-                p.d += side * 4.2 * dt;
-                p.d = clamp(p.d, -(P.sidewalkOuter - 0.5), P.sidewalkOuter - 0.5);
-                if (p.timer <= 0) { p.state = Math.abs(p.d) > P.roadHalf ? WALK : CROSS; p.crossTo = Math.sign(p.d || 1) * Math.abs(this.sidewalkD(1, 0)); p.timer = 4; }
+                if (Math.sign(p.fleeTo - p.d) !== dir || p.timer <= 0) {
+                    p.d = p.fleeTo;
+                    // catch breath, then carry on along the sidewalk
+                    p.state = Math.abs(p.d) > P.roadHalf ? IDLE : CROSS;
+                    p.crossTo = Math.sign(p.d || 1) * Math.abs(this.sidewalkD(1, 0));
+                    p.timer = 1.5;
+                }
                 break;
             }
         }
@@ -173,9 +194,13 @@ export class Pedestrians {
         p.state = DOWN;
         p.downT = 0;
         p.hitBy = c.tag;
-        this._anim(p, 'Idle', true);
+        p.settled = false;
+        // limp pose, and pivot the body around the hips while tumbling
+        for (const [name, a] of Object.entries(p.actions)) a.setEffectiveWeight(name === 'Idle' ? 1 : 0);
+        p.mixer.update(0);
         const f = road3(this.road, p);
-        p.x3 = f.x; p.y3 = f.y; p.z3 = f.z;
+        p.model.position.y = p.baseY - 0.95;
+        p.x3 = f.x; p.y3 = f.y + 0.95; p.z3 = f.z;
         // velocity in three space (map (x,y) -> (x, -y))
         p.vx = v.vx * 0.9 + (Math.random() - 0.5) * 2;
         p.vz = -v.vy * 0.9 + (Math.random() - 0.5) * 2;
@@ -188,28 +213,26 @@ export class Pedestrians {
 
     _tumble(dt, p) {
         p.downT += dt;
-        const ground = this._groundAt(p.x3, p.z3) ;
-        if (p.vy !== 0 || p.y3 > ground + 0.05) {
+        if (!p.settled) {
+            const ground = this._groundAt(p.x3, p.z3);
             p.vy -= 18 * dt;
             p.x3 += p.vx * dt; p.y3 += p.vy * dt; p.z3 += p.vz * dt;
             p.root.quaternion.premultiply(this.q.setFromAxisAngle(p.spinAxis, p.spin * dt));
-            if (p.y3 <= ground) {
-                p.y3 = ground;
-                if (Math.abs(p.vy) > 2) { p.vy *= -0.3; p.vx *= 0.55; p.vz *= 0.55; p.spin *= 0.5; }
+            if (p.y3 <= ground + 0.35) {
+                p.y3 = ground + 0.35;
+                if (Math.abs(p.vy) > 3) { p.vy *= -0.3; p.vx *= 0.5; p.vz *= 0.5; p.spin *= 0.5; }
                 else {
-                    p.vy = 0; p.vx = 0; p.vz = 0; p.spin = 0;
-                    // settle lying flat on the ground
-                    const yaw = Math.random() * Math.PI * 2;
-                    p.root.rotation.set(-Math.PI / 2, 0, yaw, 'YXZ');
+                    // came to rest: lying flat, no longer moving
+                    p.settled = true;
+                    const yaw = Math.atan2(p.vx, p.vz) + (Math.random() - 0.5);
                     p.root.rotation.set(Math.PI / 2 * (Math.random() < 0.5 ? 1 : -1), yaw, 0, 'YXZ');
-                    p.y3 = ground + 0.12;
+                    p.y3 = ground + 0.14;
                 }
             }
+            p.x = p.x3; p.y = -p.z3;
+            const loc = this.road.nearest(p.x, p.y, {});
+            if (loc) { p.s = loc.s; p.d = loc.d; }
         }
-        // keep map coords in sync for culling / collisions
-        p.x = p.x3; p.y = -p.z3;
-        const loc = this.road.nearest(p.x, p.y, {});
-        if (loc) { p.s = loc.s; p.d = loc.d; }
         p.root.position.set(p.x3, p.y3, p.z3);
     }
 

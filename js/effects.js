@@ -1,4 +1,4 @@
-// Particle effects: tyre smoke, skid marks, sparks, engine smoke / fire, explosions.
+// Particle effects: tyre smoke, skid marks and crash sparks.
 import * as THREE from 'three';
 import { glowTexture } from './textures.js';
 
@@ -72,7 +72,6 @@ export class Effects {
         this.scene = scene;
         this.night = night;
         this.smoke = new ParticleSystem(scene, 420);
-        this.fire = new ParticleSystem(scene, 260, { additive: true });
         this.sparks = new ParticleSystem(scene, 260, { additive: true, scale: 300 });
 
         // skid marks: ring buffer of quads
@@ -94,18 +93,6 @@ export class Effects {
         this.lastWheel = new Map();
         scene.add(this.marks);
 
-        // explosion flash light (always present so the light count never changes)
-        this.flash = new THREE.PointLight(0xffa050, 0, 90, 1.6);
-        scene.add(this.flash);
-        this.flashT = 0;
-
-        // debris chunks
-        this.debrisMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.9, metalness: 0.2 }), 40);
-        this.debrisMesh.count = 0;
-        this.debrisMesh.frustumCulled = false;
-        this.debrisMesh.castShadow = true;
-        scene.add(this.debrisMesh);
-        this.debris = [];
         this.tmp = new THREE.Vector3();
         this.m4 = new THREE.Matrix4();
         this.q = new THREE.Quaternion();
@@ -132,23 +119,6 @@ export class Effects {
         });
     }
 
-    // engine smoke / fire for a damaged car (health 0..100)
-    damage(dt, rig, health, enginePos) {
-        if (health > 55) return;
-        const p = this.tmp.copy(enginePos).applyMatrix4(rig.root.matrixWorld);
-        const sev = 1 - health / 55;
-        if (Math.random() < dt * (8 + sev * 30)) {
-            const dark = health < 25 ? 0.12 : 0.5;
-            this.smoke.emit({ x: p.x, y: p.y, z: p.z, vx: (Math.random() - 0.5) * 0.6, vy: 1.4 + Math.random(), vz: (Math.random() - 0.5) * 0.6,
-                life: 1.6 + Math.random() * 1.2, size: 0.8 + sev, grow: 3, alpha: 0.55, r: dark, g: dark, b: dark, drag: 0.985 });
-        }
-        if (health < 22 && Math.random() < dt * 40) {
-            this.fire.emit({ x: p.x + (Math.random() - 0.5) * 0.5, y: p.y, z: p.z + (Math.random() - 0.5) * 0.5,
-                vx: (Math.random() - 0.5) * 0.4, vy: 1.5 + Math.random() * 1.5, vz: (Math.random() - 0.5) * 0.4,
-                life: 0.45 + Math.random() * 0.3, size: 0.9, grow: 0.6, alpha: 0.9, r: 1, g: 0.7, b: 0.25, r2: 0.9, g2: 0.15, b2: 0.02, fadeIn: 20 });
-        }
-    }
-
     // sparks at a contact point (three.js space) moving along (vx, vz)
     impactSparks(x, y, z, vx, vz, strength) {
         const n = Math.min(40, 6 + strength * 2);
@@ -162,44 +132,8 @@ export class Effects {
         if (Math.random() < 0.5) this.impactSparks(x, y, z, vx, vz, 0);
     }
 
-    explode(pos, scale = 1) {
-        for (let i = 0; i < 90 * scale; i++) {
-            const a = Math.random() * Math.PI * 2, u = Math.random();
-            const sp = 4 + Math.random() * 10 * scale;
-            this.fire.emit({ x: pos.x, y: pos.y + 0.8, z: pos.z, vx: Math.cos(a) * sp * u, vy: 2 + Math.random() * 9 * scale, vz: Math.sin(a) * sp * u,
-                life: 0.6 + Math.random() * 0.8, size: 2.5 * scale, grow: 1.5, alpha: 1, r: 1, g: 0.85, b: 0.4, r2: 0.8, g2: 0.15, b2: 0.02, drag: 0.92, fadeIn: 40 });
-        }
-        for (let i = 0; i < 60 * scale; i++) {
-            const a = Math.random() * Math.PI * 2;
-            this.smoke.emit({ x: pos.x + Math.cos(a) * 1.5, y: pos.y + 1, z: pos.z + Math.sin(a) * 1.5, vx: Math.cos(a) * 3, vy: 3 + Math.random() * 4, vz: Math.sin(a) * 3,
-                life: 2.5 + Math.random() * 2, size: 3 * scale, grow: 2.5, alpha: 0.7, r: 0.08, g: 0.08, b: 0.08, drag: 0.97, fadeIn: 3 });
-        }
-        this.impactSparks(pos.x, pos.y + 0.8, pos.z, 0, 0, 30);
-        for (let i = 0; i < 14 * scale && this.debris.length < 40; i++) {
-            const a = Math.random() * Math.PI * 2;
-            this.debris.push({ x: pos.x, y: pos.y + 1, z: pos.z, vx: Math.cos(a) * (4 + Math.random() * 8), vy: 5 + Math.random() * 9, vz: Math.sin(a) * (4 + Math.random() * 8),
-                rx: Math.random() * 6, ry: Math.random() * 6, wx: (Math.random() - 0.5) * 12, wy: (Math.random() - 0.5) * 12, s: 0.08 + Math.random() * 0.18, groundY: pos.y });
-        }
-        this.flash.position.set(pos.x, pos.y + 2, pos.z);
-        this.flashT = 1;
-    }
-
     update(dt) {
-        this.smoke.update(dt); this.fire.update(dt); this.sparks.update(dt);
-        if (this.flashT > 0) { this.flashT = Math.max(0, this.flashT - dt * 1.6); this.flash.intensity = 4000 * this.flashT * this.flashT; }
-        let n = 0;
-        for (const d of this.debris) {
-            if (d.y > d.groundY + d.s * 0.5 || d.vy > 0) {
-                d.vy -= 18 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
-                d.rx += d.wx * dt; d.ry += d.wy * dt;
-                if (d.y < d.groundY + d.s * 0.5) { d.y = d.groundY + d.s * 0.5; d.vy *= -0.3; d.vx *= 0.5; d.vz *= 0.5; d.wx *= 0.5; d.wy *= 0.5; }
-            }
-            this.e.set(d.rx, d.ry, 0);
-            this.m4.compose(this.tmp.set(d.x, d.y, d.z), this.q.setFromEuler(this.e), new THREE.Vector3(d.s * 1.6, d.s * 0.5, d.s));
-            this.debrisMesh.setMatrixAt(n++, this.m4);
-        }
-        this.debrisMesh.count = n;
-        this.debrisMesh.instanceMatrix.needsUpdate = true;
+        this.smoke.update(dt); this.sparks.update(dt);
     }
 
     _mark(a, b, alpha) {
@@ -214,11 +148,11 @@ export class Effects {
         ga.position.needsUpdate = true; ga.alpha.needsUpdate = true;
     }
 
-    clearTransient() { this.smoke.clear(); this.fire.clear(); this.sparks.clear(); this.debris.length = 0; this.flashT = 0; this.flash.intensity = 0; }
+    clearTransient() { this.smoke.clear(); this.sparks.clear(); }
 
     dispose() {
-        this.smoke.dispose(); this.fire.dispose(); this.sparks.dispose();
-        this.scene.remove(this.marks, this.flash, this.debrisMesh);
+        this.smoke.dispose(); this.sparks.dispose();
+        this.scene.remove(this.marks);
         this.marks.geometry.dispose();
     }
 }

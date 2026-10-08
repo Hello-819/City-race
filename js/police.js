@@ -79,7 +79,7 @@ export class Police {
         }
         rig.root.visible = false;
         const ai = new AIDriver(car, this.road, { skill: 0.97 });
-        return { car, ai, active: false, wrecked: false, bar, lights: [new THREE.Vector3(-x * 0.14, y + 0.12, z * 0.05), new THREE.Vector3(x * 0.14, y + 0.12, z * 0.05)], wreckT: 0, roadblock: false, idle: 0 };
+        return { car, ai, active: false, bar, lights: [new THREE.Vector3(-x * 0.14, y + 0.12, z * 0.05), new THREE.Vector3(x * 0.14, y + 0.12, z * 0.05)], wreckT: 0, roadblock: false, idle: 0 };
     }
 
     addHeat(amount) {
@@ -103,7 +103,6 @@ export class Police {
             const f = road.frameAt(s);
             u.car.veh.vx = f.c * (player.veh.forwardSpeed * 0.9); u.car.veh.vy = f.sn * (player.veh.forwardSpeed * 0.9);
         }
-        u.car.health = 100; u.car.exploded = false; u.wrecked = false; u.wreckT = 0;
         u.active = true; u.roadblock = roadblock; u.idle = 0;
         u.car.rig.root.visible = true;
     }
@@ -126,7 +125,7 @@ export class Police {
 
         // spawn / despawn
         const want = wanted ? Math.min(MAX_UNITS - (stars >= 3 ? 2 : 0), stars + 1) : 0;
-        const chasing = this.units.filter(u => u.active && !u.wrecked && !u.roadblock);
+        const chasing = this.units.filter(u => u.active && !u.roadblock);
         if (wanted && chasing.length < want) {
             const free = this.units.find(u => !u.active);
             if (free) this._spawn(free, player, false);
@@ -155,18 +154,13 @@ export class Police {
             const car = u.car, v = car.veh;
             const gap = player.s - car.s;
             const dist = Math.hypot(player.veh.x - v.x, player.veh.y - v.y);
-            if (!u.wrecked) nearest = Math.min(nearest, dist);
+            nearest = Math.min(nearest, dist);
             // leave the chase when the heat is gone or too far behind
             if ((!wanted && dist > 120) || gap > 450 || gap < -600) { this._deactivate(u); continue; }
 
             let ctl;
-            if (u.wrecked || car.exploded) {
-                ctl = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
-                u.wreckT += dt;
-                effects.damage(dt, car.rig, 5, car.enginePos);
-                if (u.wreckT > 30 && dist > 150) this._deactivate(u);
-            } else if (u.roadblock && dist > 35 && gap < 0) {
-                ctl = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
+            if (u.roadblock && dist > 35 && gap < 0) {
+                ctl = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
             } else if (!wanted) {
                 u.roadblock = false;
                 ctl = u.ai.drive(dt, { d: -1.75, speed: 12, chase: null });
@@ -177,35 +171,29 @@ export class Police {
                 const laneD = close ? player.d : u.ai.pickLane(obstacles, lanes);
                 const pv = player.veh;
                 const speed = Math.abs(pv.forwardSpeed) + (gap > 40 ? 25 : gap > 0 ? 10 : -4);
-                ctl = u.ai.drive(dt, { d: laneD, speed: clamp(speed, 10, 92), chase: close ? { x: pv.x, y: pv.y, vx: pv.vx, vy: pv.vy } : null });
+                // boxed in next to a stopped player: hold position instead of shoving
+                const hold = dist < 9 && Math.abs(pv.forwardSpeed) < 3;
+                ctl = u.ai.drive(dt, { d: laneD, speed: clamp(speed, 10, 92), chase: close ? { x: pv.x, y: pv.y, vx: pv.vx, vy: pv.vy } : null, hold });
             }
-            const imp = car.update(dt, ctl, world);
-            for (const i of imp) car.applyImpact(i.speed, i.nx, i.ny, 0.35);
-            for (const h of traffic.collide(v, car.s, simTime)) car.applyImpact(h.speed, h.nx, h.ny, 0.4);
+            car.update(dt, ctl, world);
+            traffic.collide(v, car.s, simTime);
             // ramming the player
             const hit = vehicleVsVehicle(player.veh, v);
             if (hit && hit.speed > 1) {
                 this.events.push({ type: 'copContact', speed: hit.speed, nx: hit.hit.nx, ny: hit.hit.ny, unit: u });
-                car.applyImpact(hit.speed, -hit.hit.nx, -hit.hit.ny, 0.6);
             }
             // police vs police
             for (const o of this.units) if (o !== u && o.active) vehicleVsVehicle(v, o.car.veh);
-            if (!u.wrecked && car.health <= 0) {
-                u.wrecked = true;
-                car.explode();
-                effects.explode(car.rig.root.position, 0.8);
-                this.events.push({ type: 'copWrecked', pos: car.rig.root.position.clone() });
-            }
         }
 
         // busted / evade meters
         const speed = Math.abs(player.veh.forwardSpeed);
-        if (wanted && nearest < 9 && speed < 2.5 && !player.exploded) this.bust = Math.min(1, this.bust + dt / 3);
+        if (wanted && nearest < 9 && speed < 2.5) this.bust = Math.min(1, this.bust + dt / 3);
         else this.bust = Math.max(0, this.bust - dt / 2);
         if (this.bust >= 1) this.events.push({ type: 'busted' });
 
         if (wanted) {
-            if (nearest > 190 || !this.units.some(u => u.active && !u.wrecked)) this.evade = Math.min(1, this.evade + dt / 9);
+            if (nearest > 190 || !this.units.some(u => u.active)) this.evade = Math.min(1, this.evade + dt / 9);
             else this.evade = Math.max(0, this.evade - dt / 3);
             if (this.evade >= 1) {
                 this.heat = Math.max(0, this.stars - 1);
@@ -224,7 +212,7 @@ export class Police {
         this.units.forEach((u, i) => {
             const root = u.car.rig.root;
             for (let k = 0; k < 2; k++) {
-                const on = u.active && !u.wrecked && (k === 0 ? flash : !flash);
+                const on = u.active && (k === 0 ? flash : !flash);
                 if (!on) { pos.setXYZ(i * 2 + k, 0, -1e4, 0); continue; }
                 root.updateMatrixWorld();
                 v.copy(u.lights[k]).applyMatrix4(u.car.rig.body.matrixWorld);

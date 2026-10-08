@@ -80,7 +80,7 @@ export class Traffic {
         const rng = this.rng;
         for (let tries = 0; tries < 20; tries++) {
             const lane = rng.pick(this.lanes);
-            const s = initial ? playerS + rng.range(35, 900) : playerS + rng.range(420, 900);
+            const s = initial ? playerS + rng.range(35, 950) : playerS + rng.range(620, 980);
             if (s > this.road.frontS - 50) continue;
             if (!this._laneFree(lane, s, 28, car)) continue;
             car.lane = lane; car.s = s; car.d = lane.d; car.dTarget = lane.d;
@@ -106,7 +106,7 @@ export class Traffic {
         const road = this.road;
         const { playerS, playerD, playerAlong, player, obstacles, simTime } = ctx;
         for (const car of this.cars) {
-            if (car.s < playerS - 200 || car.s > playerS + 1100 || car.s > road.frontS - 10 || car.s < road.backS + 10) {
+            if (car.s < playerS - 200 || car.s > playerS + 1150 || car.s > road.frontS - 10 || car.s < road.backS + 10) {
                 this._spawn(car, playerS, false);
                 continue;
             }
@@ -195,7 +195,7 @@ export class Traffic {
             const f = road.frameAt(car.s);
             car.dTarget = car.d = car.d - (hit.nx * -f.sn + hit.ny * f.c) * Math.min(0.6, -vn * 0.05);
             const side = Math.cos(veh.th) * hit.ny - Math.sin(veh.th) * hit.nx;
-            veh.r += side * Math.min(1.5, -vn * 0.06);
+            veh.r += side * Math.min(0.45, -vn * 0.02);
             // only real hits stall the AI car; gentle nudges just push it along
             if (-vn > 4) {
                 car.crashed = 2.5;
