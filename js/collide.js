@@ -38,7 +38,7 @@ export function vehicleVsVehicle(a, b, e = 0.25) {
     b.vx -= j / mb * hit.nx; b.vy -= j / mb * hit.ny;
     // yaw kicks from off-centre contact
     const side = (v, nx, ny) => Math.cos(v.th) * ny - Math.sin(v.th) * nx;
-    a.r += side(a, hit.nx, hit.ny) * Math.min(1.2, -vn * 0.05);
-    b.r -= side(b, hit.nx, hit.ny) * Math.min(1.2, -vn * 0.05);
+    a.r += side(a, hit.nx, hit.ny) * Math.min(0.4, -vn * 0.02);
+    b.r -= side(b, hit.nx, hit.ny) * Math.min(0.4, -vn * 0.02);
     return { speed: -vn, hit };
 }

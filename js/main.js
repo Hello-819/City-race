@@ -207,7 +207,7 @@ function startRace(seed) {
     const game = new GameRules(mode, kind);
     const world = new World(scene, kind, night, seed, { finishS: mode === 'sprint' ? game.finishS : null });
     const rig = createCar(settings.car, { color: settings.color });
-    const player = new Car(rig, scene, { night, player: true, deformable: true });
+    const player = new Car(rig, scene, { night, player: true });
     applyAssists(player.veh);
     const nRivals = parseInt(settings.rivals, 10) || 0;
     const slots = Racers.grid(kind, nRivals);
@@ -304,14 +304,14 @@ function finish() {
     const score = Math.floor(g.score);
     const best = store.get('best', {});
     const k = race.kind + '-' + g.mode;
-    const isBest = g.endReason !== 'busted' && g.endReason !== 'wrecked' && (!best[k] || score > best[k]);
+    const isBest = g.endReason !== 'busted' && (!best[k] || score > best[k]);
     if (isBest) { best[k] = score; store.set('best', best); }
     // keep the ghost if this run beat the stored one
     const old = ghostStore.load(race.ghostKey);
     const better = g.mode === 'sprint' ? (g.finished && (!old || !old.finishTime || g.finishTime < old.finishTime)) : (!old || g.distance > (old.distance || 0));
     if (better && race.ghostRec.data.length > 20) ghostStore.save(race.ghostKey, { car: settings.car, data: race.ghostRec.data, finishTime: g.finished ? g.finishTime : 0, distance: g.distance });
     const sp = (v) => settings.units === 'kmh' ? Math.round(v * 3.6) + ' km/h' : Math.round(v * 2.237) + ' mph';
-    const titles = { time: "Time's up!", finish: 'Finished!', busted: 'BUSTED!', wrecked: 'WRECKED!' };
+    const titles = { time: "Time's up!", finish: 'Finished!', busted: 'BUSTED!' };
     $('results-title').textContent = titles[g.endReason] || 'Session over';
     const rows = [
         ['Distance', (g.distance / 1000).toFixed(2) + ' km'],
@@ -341,15 +341,12 @@ function heatEvent(amount, reason) {
     else if (reason && police.stars === 0 && police.heat > 0.01) hud.popup(reason, 'bad');
 }
 
-function damagePlayer(speed, nx, ny, mult = 1) {
-    const dmg = race.player.applyImpact(speed, nx, ny, mult);
-    if (dmg > 1) {
-        camRig.shake = Math.max(camRig.shake, Math.min(1, dmg / 30));
-        race.damageFlash = Math.min(1, (race.damageFlash || 0) + dmg / 25);
-        const v = race.player.veh;
-        race.effects.impactSparks(v.x - nx * 1.2, v.z + 0.5, -(v.y - ny * 1.2), v.vx, -v.vy, dmg);
-    }
-    return dmg;
+// crash feedback only (no damage model): camera shake and sparks
+function crashFx(speed, nx, ny) {
+    if (speed < 3) return;
+    camRig.shake = Math.max(camRig.shake, Math.min(0.8, speed / 30));
+    const v = race.player.veh;
+    race.effects.impactSparks(v.x - nx * 1.2, v.z + 0.5, -(v.y - ny * 1.2), v.vx, -v.vy, speed);
 }
 
 function updateRace(dt) {
@@ -362,7 +359,7 @@ function updateRace(dt) {
     if (input.hit('KeyH')) audio.horn();
     if (input.hit('KeyE')) veh.shift(1);
     if (input.hit('KeyQ')) veh.shift(-1);
-    if (input.hit('KeyR') && !player.exploded) {
+    if (input.hit('KeyR')) {
         const lane = race.kind === 'city' ? -5.25 : -1.8;
         player.place(world.road, player.s, lane);
         camRig.reset();
@@ -405,7 +402,7 @@ function updateRace(dt) {
     const events = traffic.update(dt, { playerS: player.s, playerD: player.d, playerAlong: along, player: veh, obstacles, simTime });
     for (const h of traffic.collide(veh, player.s, simTime)) {
         events.push({ type: 'crash', strength: h.speed });
-        damagePlayer(h.speed, h.nx, h.ny);
+        crashFx(h.speed, h.nx, h.ny);
         audio.impact(h.speed);
         if (h.speed > 4) heatEvent(0.5, 'Careful - the police noticed that');
     }
@@ -414,7 +411,7 @@ function updateRace(dt) {
     // --- walls & props ---
     for (const hit of impacts) {
         audio.impact(hit.speed);
-        damagePlayer(hit.speed, hit.nx, hit.ny, hit.kind === 'prop' ? 1.1 : 0.8);
+        crashFx(hit.speed, hit.nx, hit.ny);
         if (hit.kind === 'prop' && hit.speed > 3 && !hit.prop.hit) { hit.prop.hit = true; heatEvent(0.4, 'Property damage!'); }
     }
     for (const sc of player.scrapes) effects.scrape(sc.x, veh.z + 0.4, -sc.y, veh.vx, -veh.vy);
@@ -422,7 +419,7 @@ function updateRace(dt) {
     // --- AI rivals ---
     if (racers) {
         for (const e of racers.update(dt, { player, traffic, world, controls: state === 'race', simTime, finishS: game.mode === 'sprint' ? game.finishS : null, police })) {
-            if (e.type === 'racerContact') { damagePlayer(e.speed, e.nx, e.ny, 0.7); audio.impact(e.speed); }
+            if (e.type === 'racerContact') { crashFx(e.speed, e.nx, e.ny); audio.impact(e.speed); }
             if (e.type === 'racerFinished' && !game.finished) hud.popup(e.u.name + ' finished', 'bad');
         }
     }
@@ -445,30 +442,19 @@ function updateRace(dt) {
     if (police) {
         for (const e of police.update(dt, { player, traffic, world, effects, simTime })) {
             if (e.type === 'copContact') {
-                if (e.speed > 3) damagePlayer(e.speed, e.nx, e.ny, 0.3);
+                crashFx(e.speed, e.nx, e.ny);
                 audio.impact(e.speed);
                 if (e.speed > 6 && !e.unit.rammed) { e.unit.rammed = true; heatEvent(0.6); setTimeout(() => { e.unit.rammed = false; }, 2000); }
             }
-            if (e.type === 'copWrecked') { audio.boom(); race.recorder.event(simTime, 'explosion', e.pos); heatEvent(1); hud.popup('POLICE CAR WRECKED', 'bad'); }
             if (e.type === 'roadblock') hud.popup('ROADBLOCK AHEAD', 'bad');
             if (e.type === 'starLost') hud.popup('Heat dropping', 'cp');
             if (e.type === 'evaded') hud.popup('EVADED!', 'cp');
             if (e.type === 'busted' && state === 'race') game.end('busted');
         }
         const near = police.nearest ?? Infinity;
-        audio.siren(police.active.some(u => !u.wrecked) ? Math.max(0, 1 - near / 260) : 0);
+        audio.siren(police.active.length ? Math.max(0, 1 - near / 260) : 0);
     }
 
-    // --- damage state ---
-    if (!player.exploded && player.health <= 0) {
-        player.explode();
-        effects.explode(player.rig.root.position, 1.2);
-        race.recorder.event(simTime, 'explosion', player.rig.root.position);
-        audio.boom();
-        camRig.shake = 1;
-        hud.popup('WRECKED', 'bad');
-    }
-    if (player.exploded && state === 'race') { race.wreckT += dt; if (race.wreckT > 3) game.end('wrecked'); }
 
     if (state === 'race') {
         const popups = game.update(dt, player, world.road, events, impacts.map(i => i.speed), hud, audio);
@@ -479,7 +465,6 @@ function updateRace(dt) {
     // --- effects, ghost, recording ---
     player.rig.root.updateMatrixWorld(true);
     effects.tyres(dt, player.rig, veh.skid, veh.speed);
-    effects.damage(dt, player.rig, player.health, player.enginePos);
     if (racers) for (const u of racers.units) { u.car.rig.root.updateMatrixWorld(true); effects.tyres(dt, u.car.rig, u.car.veh.skid, u.car.veh.speed, u.car.rig); }
     effects.update(dt);
     if (state === 'race') {
@@ -487,16 +472,15 @@ function updateRace(dt) {
         race.recorder.record(simTime);
     }
     if (race.ghostCar) race.ghostCar.update(simTime);
-    race.damageFlash = Math.max(0, (race.damageFlash || 0) - dt * 1.5);
 
     env.update(player.rig.root.position, camera);
     camRig.update(dt, player.rig, veh, input);
     audio.update({
-        active: !player.exploded, rpm: veh.rpm, cylinders: veh.P.cylinders, throttle: veh.throttle, redline: veh.P.redline,
+        active: true, rpm: veh.rpm, cylinders: veh.P.cylinders, throttle: veh.throttle, redline: veh.P.redline,
         limiter: veh.limiter, skid: veh.skid, speed: veh.speed, inside: camRig.inside,
     });
     const position = racers ? { place: racers.position(player.s, game.finished, game.finishTime), total: racers.units.length + 1 } : null;
-    hud.update({ veh, game, road: world.road, player, traffic, police, racers, health: player.health, position });
+    hud.update({ veh, game, road: world.road, player, traffic, police, racers, position });
 }
 
 function renderRace(dt) {
@@ -506,9 +490,8 @@ function renderRace(dt) {
     if (needMirror) mirror.update(scene, p.rig);
     if (mirror.cockpitPlane) mirror.cockpitPlane.visible = needMirror && inside;
     const police = race.police;
-    const chase = police && police.active.some(u => !u.wrecked) ? Math.max(0, 1 - (police.nearest ?? 999) / 120) : 0;
-    const low = p.health < 25 ? 0.35 + 0.25 * Math.sin(performance.now() / 150) : 0;
-    post.render(scene, camera, dt, { speed: state === 'replay' ? (p.replaySpeed || 0) : Math.abs(p.veh.forwardSpeed), damage: Math.min(1, (race.damageFlash || 0) + low), police: chase });
+    const chase = police && police.active.length ? Math.max(0, 1 - (police.nearest ?? 999) / 120) : 0;
+    post.render(scene, camera, dt, { speed: state === 'replay' ? (p.replaySpeed || 0) : Math.abs(p.veh.forwardSpeed), damage: 0, police: chase });
     if (needMirror && (!inside || !mirror.cockpitPlane) && state !== 'replay') mirror.drawHud(window.innerWidth, window.innerHeight);
 }
 

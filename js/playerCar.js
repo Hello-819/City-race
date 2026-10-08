@@ -1,13 +1,12 @@
 // A drivable car: physics + road constraints + visual rig (wheels, steering
-// wheel, suspension motion, lights) + health / damage. Used for the player,
+// wheel, suspension motion, lights). Used for the player,
 // AI racers and police.
 import * as THREE from 'three';
 import { Vehicle, PHYS_DT } from './vehicle.js';
 import { clamp, damp } from './core/rng.js';
-import { Deformer } from './damage.js';
 
 export class Car {
-    constructor(rig, scene, { night = false, player = false, deformable = false } = {}) {
+    constructor(rig, scene, { night = false, player = false } = {}) {
         this.rig = rig;
         this.veh = new Vehicle(rig.spec, rig);
         this.scene = scene;
@@ -23,13 +22,6 @@ export class Car {
         this.scrapes = [];
         this.night = night;
         this.loc = {};
-        this.health = 100;
-        this.exploded = false;
-        this.frontHits = 0; this.rearHits = 0;
-        this.lightsBroken = { head: false, tail: false };
-        this.deformer = deformable ? new Deformer(rig) : null;
-        const engineRear = rig.spec.engine === 'rear';
-        this.enginePos = new THREE.Vector3(0, rig.dims.y * 0.75, (engineRear ? 0.32 : -0.3) * rig.dims.z);
         if (night && player) {
             const spot = new THREE.SpotLight(0xfff2dd, 420, 160, 0.5, 0.45, 1.15);
             spot.position.set(0, 0.75, -rig.dims.z / 2 + 0.2);
@@ -56,7 +48,7 @@ export class Car {
         const v = this.veh;
         this.impacts.length = 0;
         this.scrapes.length = 0;
-        const ctl = this.exploded ? { throttle: 0, brake: 0.6, steer: 0, handbrake: 1 } : controls;
+        const ctl = controls;
         this.acc += dt;
         let steps = 0;
         while (this.acc >= PHYS_DT && steps < 12) {
@@ -112,54 +104,6 @@ export class Car {
         }
     }
 
-    // Apply damage from an impact with world normal (nx, ny) pointing from the obstacle into the car.
-    applyImpact(speed, nx, ny, mult = 1) {
-        if (this.exploded) return 0;
-        const dmg = Math.pow(Math.max(0, speed - 3), 1.2) * 1.25 * mult;
-        if (dmg <= 0) return 0;
-        this.health = Math.max(0, this.health - dmg);
-        const v = this.veh, rig = this.rig;
-        // contact point in body space (model faces -Z, right = +X)
-        const f = nx * Math.cos(v.th) + ny * Math.sin(v.th);
-        const l = nx * -Math.sin(v.th) + ny * Math.cos(v.th);
-        const ux = l, uz = f;                     // direction from centre towards the obstacle (= -n) in model space
-        const hw = rig.dims.x / 2, hl = rig.dims.z / 2;
-        const t = Math.min(hw / Math.max(Math.abs(ux), 1e-3), hl / Math.max(Math.abs(uz), 1e-3));
-        const point = new THREE.Vector3(ux * t * 0.98, rig.dims.y * 0.42, uz * t * 0.98);
-        if (this.deformer && dmg > 2) {
-            const inward = new THREE.Vector3(-ux, -0.15, -uz).normalize();
-            this.deformer.dent(point, inward, Math.min(0.22, 0.03 + dmg * 0.006), 0.55 + Math.min(0.6, dmg * 0.02));
-        }
-        if (point.z < -hl * 0.6) this.frontHits += dmg > 8 ? 1 : 0;
-        if (point.z > hl * 0.6) this.rearHits += dmg > 8 ? 1 : 0;
-        if (this.frontHits >= 2 && !this.lightsBroken.head) {
-            this.lightsBroken.head = true;
-            for (const m of rig.mats.head) m.emissiveIntensity = 0;
-            if (this.spot) this.spot.intensity *= 0.25;
-        }
-        if (this.rearHits >= 2) this.lightsBroken.tail = true;
-        return dmg;
-    }
-
-    explode() {
-        this.exploded = true;
-        this.health = 0;
-        // charred shell
-        this.rig.root.traverse((o) => {
-            if (!o.isMesh || o === this.rig.shadow) return;
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-            for (const m of mats) {
-                if (!m.color || m.userData.charred) continue;
-                m.color.setRGB(0.02, 0.018, 0.016); if ('roughness' in m) m.roughness = 1; if ('metalness' in m) m.metalness = 0.05;
-                if ('clearcoat' in m) m.clearcoat = 0; if ('envMapIntensity' in m) m.envMapIntensity = 0.15;
-                if (m.transparent) m.opacity = 0.05;
-                if (m.emissive) m.emissiveIntensity = 0;
-                m.userData.charred = true;
-            }
-        });
-        if (this.spot) this.spot.intensity = 0;
-    }
-
     syncVisual(road, dt) {
         const v = this.veh, rig = this.rig;
         const zTarget = road.heightAt(this.s, this.d);
@@ -197,11 +141,9 @@ export class Car {
             if (w.front) w.steer.rotation.y = v.steer;
         }
         if (rig.steering) rig.steering.pivot.quaternion.setFromAxisAngle(rig.steering.axis, v.steer * 9);
-        if (!this.exploded) {
-            const brake = v.brake > 0.05 || v.handbrake > 0;
-            const tail = this.lightsBroken.tail ? 0.05 : (this.night ? 1.0 : 0.35) + (brake ? 3.0 : 0);
-            for (const m of rig.mats.tail) m.emissiveIntensity = tail;
-        }
+        const brake = v.brake > 0.05 || v.handbrake > 0;
+        const tail = (this.night ? 1.0 : 0.35) + (brake ? 3.0 : 0);
+        for (const m of rig.mats.tail) m.emissiveIntensity = tail;
     }
 
     dispose() { this.scene.remove(this.rig.root); }

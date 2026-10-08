@@ -205,7 +205,7 @@ export class CityBuilder {
                 // tree between lamps
                 const ts = ss + 16 * (rng.chance(0.5) ? 0.5 : -0.5);
                 if (rng.chance(0.55) && !road.inIntersection(ts, 4) && ts > s0 && ts < s1) {
-                    const tp = road.pointAt(ts, side * (P.roadHalf + 2.6));
+                    const tp = road.pointAt(ts, side * (P.roadHalf + 0.9));
                     const sc = rng.range(0.8, 1.2);
                     trunks.push({ x: tp.px, y: tp.pz + H, z: -tp.py, s: sc, ry: rng.range(0, 6) });
                     crowns.push({ x: tp.px, y: tp.pz + H, z: -tp.py, s: sc, ry: rng.range(0, 6) });

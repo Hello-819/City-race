@@ -68,13 +68,6 @@ export class Hud {
         } else if (police && stars > 0) {
             mb.className = 'meter-box show'; this.text('hud-meter-label', police.evade > 0.02 ? 'EVADING' : 'PURSUIT'); this.$('hud-meter-bar').style.width = police.evade * 100 + '%';
         } else mb.className = 'meter-box';
-        // car health
-        const h = Math.round(state.health ?? 100);
-        if (this.lastHealth !== h) {
-            this.lastHealth = h;
-            this.$('hud-health-bar').style.width = h + '%';
-            this.$('hud-health').className = 'health' + (h < 25 ? ' low' : h < 55 ? ' mid' : '');
-        }
         this._drawMap(road, player, traffic, state);
     }
 

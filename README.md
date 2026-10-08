@@ -44,12 +44,10 @@ Then open http://localhost:8000. It also works as-is on GitHub Pages.
   honking, stopping for people crossing), with collisions. More car models can be
   dropped into `assets/models/traffic/` (see the README there).
 - **Pedestrians** – animated people walk both sidewalks, wait for gaps and cross
-  the road (some jaywalk), run from speeding cars and get knocked over if hit.
+  the road (some jaywalk), step out of the way of cars on the sidewalk, and are killed if you run them over.
 - **Police** – hitting people, crashing into cars or knocking down lamp posts raises
   your wanted level. Police cars chase, ram and set up roadblocks; stop near them
-  and you are busted, stay out of sight to lose the heat. Police cars can be wrecked.
-- **Damage** – crashes dent the actual car body, break lights, then the engine
-  smokes, catches fire and finally explodes.
+  and you are busted, stay out of sight to lose the heat.
 - **AI rivals** – race 1, 3 or 5 opponents in any mode, with live positions.
 - **Ghost** – your best run on a track is saved and raced as a ghost car (use the
   *Daily* track, or *Race Again*).

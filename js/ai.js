@@ -13,6 +13,7 @@ export class AIDriver {
         this.stuck = 0;
         this.reverse = 0;
         this.ctl = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
+        this.steerS = 0;
     }
 
     // Highest safe speed for the road ahead within braking distance.
@@ -69,7 +70,7 @@ export class AIDriver {
             ctl.steer = clamp(car.d * 0.3, -1, 1) * -1;
             return ctl;
         }
-        if (ctl.throttle > 0.5 && Math.abs(speed) < 1.2) { this.stuck += dt; if (this.stuck > 1.5) { this.reverse = 1.4; this.stuck = 0; } }
+        if (!target.hold && ctl.throttle > 0.5 && Math.abs(speed) < 1.2) { this.stuck += dt; if (this.stuck > 1.5) { this.reverse = 1.4; this.stuck = 0; } }
         else this.stuck = 0;
 
         const look = 9 + Math.abs(speed) * 0.75;
@@ -85,13 +86,17 @@ export class AIDriver {
         }
         let err = Math.atan2(ty - v.y, tx - v.x) - v.th;
         err = Math.atan2(Math.sin(err), Math.cos(err));
-        ctl.steer = clamp(-err * (2.2 + 0.02 * speed), -1, 1);
+        // smoothed steering: no frame-to-frame flicker of the wheels
+        const want = Math.abs(err) < 0.01 ? 0 : clamp(-err * (1.8 + 0.01 * speed), -1, 1);
+        this.steerS += clamp(want - this.steerS, -4 * dt, 4 * dt);
+        ctl.steer = this.steerS;
 
         const vmax = Math.min(target.speed, this.cornerSpeed(car.s, speed));
         const errV = vmax - speed;
         ctl.throttle = errV > 0 ? clamp(errV * 0.6, 0.15, 1) : 0;
         ctl.brake = errV < -1.5 ? clamp(-errV * 0.25, 0, 1) : 0;
         ctl.handbrake = 0;
+        if (target.hold) { ctl.throttle = 0; ctl.brake = 0; ctl.handbrake = 1; }
         return ctl;
     }
 }
