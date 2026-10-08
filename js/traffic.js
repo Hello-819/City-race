@@ -1,25 +1,12 @@
 // AI traffic: lane-following cars using the Intelligent Driver Model, with
 // lane changes, oncoming traffic, collisions and near-miss detection.
 import * as THREE from 'three';
-import { createCar, TRAFFIC_PAINTS } from './assets.js';
+import { createCar, TRAFFIC_PAINTS, TRAFFIC_IDS } from './assets.js';
 import { Rng, clamp, lerp } from './core/rng.js';
 import { glowTexture } from './textures.js';
+import { obbOverlap } from './collide.js';
 
-// Oriented-rectangle overlap (separating axis). Returns {nx, ny, depth} pushing A out of B.
-export function obbOverlap(ax, ay, ath, ahl, ahw, bx, by, bth, bhl, bhw) {
-    const axes = [[Math.cos(ath), Math.sin(ath)], [-Math.sin(ath), Math.cos(ath)], [Math.cos(bth), Math.sin(bth)], [-Math.sin(bth), Math.cos(bth)]];
-    const dx = ax - bx, dy = ay - by;
-    let best = null;
-    const proj = (th, hl, hw, nx, ny) => hl * Math.abs(Math.cos(th) * nx + Math.sin(th) * ny) + hw * Math.abs(-Math.sin(th) * nx + Math.cos(th) * ny);
-    for (const [nx, ny] of axes) {
-        const ra = proj(ath, ahl, ahw, nx, ny), rb = proj(bth, bhl, bhw, nx, ny);
-        const dist = dx * nx + dy * ny;
-        const overlap = ra + rb - Math.abs(dist);
-        if (overlap <= 0) return null;
-        if (!best || overlap < best.depth) best = { nx: nx * Math.sign(dist || 1), ny: ny * Math.sign(dist || 1), depth: overlap };
-    }
-    return best;
-}
+export { obbOverlap };
 
 export class Traffic {
     constructor(scene, world, kind, night, seed, density = 1) {
@@ -63,7 +50,7 @@ export class Traffic {
     }
 
     _makeCar() {
-        const id = this.rng.chance(0.5) ? 'ferrari' : 'concept';
+        const id = this.rng.pick(TRAFFIC_IDS);
         const rig = createCar(id, { lod: true, color: this.rng.pick(TRAFFIC_PAINTS) });
         for (const m of rig.mats.tail) m.emissiveIntensity = this.night ? 1.2 : 0.25;
         for (const m of rig.mats.head) m.emissiveIntensity = this.night ? 2.5 : 0;
@@ -113,30 +100,34 @@ export class Traffic {
         for (const c of this.cars) this._spawn(c, playerS, true);
     }
 
-    update(dt, player, playerS, playerD, playerSpeedAlong, simTime) {
+    // ctx: { playerS, playerD, playerAlong, player (Vehicle), obstacles: [{s, d, v}], simTime }
+    update(dt, ctx) {
         this.events.length = 0;
         const road = this.road;
+        const { playerS, playerD, playerAlong, player, obstacles, simTime } = ctx;
         for (const car of this.cars) {
             if (car.s < playerS - 200 || car.s > playerS + 1100 || car.s > road.frontS - 10 || car.s < road.backS + 10) {
                 this._spawn(car, playerS, false);
                 continue;
             }
             const dir = car.lane.dir;
-            // leader in lane (cars + player)
+            // leader in lane: other traffic, then dynamic obstacles (player, police, racers, pedestrians)
             let gap = Infinity, vLead = 0;
             for (const o of this.cars) {
                 if (o === car || o.lane.dir !== dir || Math.abs(o.d - car.d) > 2.4) continue;
                 const ds = (o.s - car.s) * dir;
                 if (ds > 0 && ds < gap) { gap = ds; vLead = o.v; }
             }
-            const pds = (playerS - car.s) * dir;
-            const playerInLane = Math.abs(playerD - car.d) < 2.6;
-            if (playerInLane && pds > 0 && pds < gap) { gap = pds; vLead = Math.max(0, playerSpeedAlong * dir); }
+            for (const o of obstacles) {
+                if (Math.abs(o.d - car.d) > (o.ped ? 1.8 : 2.6)) continue;
+                const ds = (o.s - car.s) * dir;
+                if (ds > 0 && ds < gap) { gap = ds; vLead = Math.max(0, o.v * dir); }
+            }
             gap -= 4.8;
-            // IDM
             const a = 1.8, b = 3.2, T = 1.25, s0 = 4;
             const v = car.v;
-            const v0 = car.crashed > 0 ? 0 : car.v0 * (road.frameAt(car.s).k !== 0 ? clamp(1.2 - Math.abs(road.frameAt(car.s).k) * 25, 0.55, 1) : 1);
+            const k = Math.abs(road.frameAt(car.s).k);
+            const v0 = car.crashed > 0 ? 0 : car.v0 * (k > 0 ? clamp(1.2 - k * 25, 0.55, 1) : 1);
             const sStar = s0 + v * T + v * (v - vLead) / (2 * Math.sqrt(a * b));
             let acc = a * (1 - Math.pow(v / Math.max(v0, 0.1), 4) - Math.pow(Math.max(sStar, 0) / Math.max(gap, 0.5), 2));
             acc = clamp(acc, -9, a);
@@ -145,20 +136,17 @@ export class Traffic {
             car.s += car.v * dir * dt;
             if (car.crashed > 0) { car.crashed -= dt; if (car.crashed <= 0) car.dTarget = car.lane.d; }
 
-            // lane change when stuck behind someone slower
             if (Math.abs(car.d - car.dTarget) < 0.05 && gap < 35 && vLead < car.v0 - 2 && this.rng.chance(dt * 0.8)) {
-                const options = this.lanes.filter(l => l.dir === dir && l !== car.lane);
-                for (const l of options) {
-                    const playerNear = Math.abs(playerD - l.d) < 2.6 && Math.abs(playerS - car.s) < 25;
-                    if (this._laneFree(l, car.s, 22, car) && !playerNear) { car.lane = l; car.dTarget = l.d; break; }
+                for (const l of this.lanes.filter(l => l.dir === dir && l !== car.lane)) {
+                    const blocked = obstacles.some(o => Math.abs(o.d - l.d) < 2.6 && Math.abs(o.s - car.s) < 25);
+                    if (this._laneFree(l, car.s, 22, car) && !blocked) { car.lane = l; car.dTarget = l.d; break; }
                 }
             }
             car.d += clamp(car.dTarget - car.d, -1.6 * dt, 1.6 * dt);
-            // honk at a player in the oncoming lane
-            if (dir < 0 && playerInLane && pds > 0 && pds < 60 && car.honked <= 0) { this.events.push({ type: 'honk' }); car.honked = 6; }
+            const pds = (playerS - car.s) * dir;
+            if (dir < 0 && Math.abs(playerD - car.d) < 2.6 && pds > 0 && pds < 60 && car.honked <= 0) { this.events.push({ type: 'honk' }); car.honked = 6; }
             car.honked -= dt;
 
-            // pose
             const p = road.pointAt(car.s, car.d);
             const laneYaw = (car.dTarget - car.d) !== 0 ? Math.atan2((car.dTarget - car.d) > 0 ? 1.6 : -1.6, Math.max(car.v, 3)) * dir * 0.5 : 0;
             const th = p.th + (dir < 0 ? Math.PI : 0) + laneYaw;
@@ -175,44 +163,47 @@ export class Traffic {
             const rel = Math.sign(car.s - playerS);
             if (rel !== car.prevRel && car.prevRel !== 0) {
                 const lateral = Math.abs(car.d - playerD) - car.halfW - player.P.halfWidth;
-                const relSpeed = Math.abs(playerSpeedAlong - car.v * dir);
+                const relSpeed = Math.abs(playerAlong - car.v * dir);
                 if (lateral < 1.25 && lateral > -0.3 && relSpeed > 7 && simTime - car.lastHit > 2) {
                     this.events.push({ type: 'nearmiss', closeness: clamp(1.25 - lateral, 0, 1.5), oncoming: dir < 0, relSpeed });
                 }
             }
             car.prevRel = rel;
-
-            // collision with the player
-            if (Math.abs(car.s - playerS) < 8) {
-                const hit = obbOverlap(player.x, player.y, player.th, player.P.halfLength, player.P.halfWidth, car.x, car.y, car.th, car.halfL, car.halfW);
-                if (hit) {
-                    const tvx = Math.cos(car.th) * car.v, tvy = Math.sin(car.th) * car.v;
-                    const rvx = player.vx - tvx, rvy = player.vy - tvy;
-                    const vn = rvx * hit.nx + rvy * hit.ny;
-                    player.x += hit.nx * hit.depth; player.y += hit.ny * hit.depth;
-                    if (vn < 0) {
-                        const mP = player.P.mass, mT = 1500, e = 0.3;
-                        const j = -(1 + e) * vn / (1 / mP + 1 / mT);
-                        player.vx += j / mP * hit.nx; player.vy += j / mP * hit.ny;
-                        // traffic car speed along its heading changes
-                        const dv = -(j / mT) * (hit.nx * Math.cos(car.th) + hit.ny * Math.sin(car.th));
-                        car.v = Math.max(0, car.v + dv);
-                        car.dTarget = car.d = car.d - (hit.nx * -Math.sin(road.frameAt(car.s).th) + hit.ny * Math.cos(road.frameAt(car.s).th)) * Math.min(0.6, -vn * 0.05);
-                        const fwdX = Math.cos(player.th), fwdY = Math.sin(player.th);
-                        const side = fwdX * hit.ny - fwdY * hit.nx;
-                        player.r += side * Math.min(1.5, -vn * 0.06);
-                        // only real hits stall the AI car; gentle nudges just push it along
-                        if (-vn > 4) {
-                            car.crashed = 2.5;
-                            if (simTime - car.lastHit > 0.4) this.events.push({ type: 'crash', strength: -vn });
-                            car.lastHit = simTime;
-                        }
-                    }
-                }
-            }
         }
         if (this.glows) this._updateGlows();
         return this.events;
+    }
+
+    // Collide a dynamic vehicle (player, police, racer) with traffic. Traffic is kinematic.
+    // Returns [{car, speed, nx, ny}] for impacts this step.
+    collide(veh, s, simTime) {
+        const out = [];
+        const road = this.road;
+        for (const car of this.cars) {
+            if (Math.abs(car.s - s) > 8 || !car.rig.root.visible) continue;
+            const hit = obbOverlap(veh.x, veh.y, veh.th, veh.P.halfLength, veh.P.halfWidth, car.x, car.y, car.th, car.halfL, car.halfW);
+            if (!hit) continue;
+            const tvx = Math.cos(car.th) * car.v, tvy = Math.sin(car.th) * car.v;
+            const vn = (veh.vx - tvx) * hit.nx + (veh.vy - tvy) * hit.ny;
+            veh.x += hit.nx * hit.depth; veh.y += hit.ny * hit.depth;
+            if (vn >= 0) continue;
+            const mP = veh.P.mass, mT = 1500, e = 0.3;
+            const j = -(1 + e) * vn / (1 / mP + 1 / mT);
+            veh.vx += j / mP * hit.nx; veh.vy += j / mP * hit.ny;
+            const dv = -(j / mT) * (hit.nx * Math.cos(car.th) + hit.ny * Math.sin(car.th));
+            car.v = Math.max(0, car.v + dv);
+            const f = road.frameAt(car.s);
+            car.dTarget = car.d = car.d - (hit.nx * -f.sn + hit.ny * f.c) * Math.min(0.6, -vn * 0.05);
+            const side = Math.cos(veh.th) * hit.ny - Math.sin(veh.th) * hit.nx;
+            veh.r += side * Math.min(1.5, -vn * 0.06);
+            // only real hits stall the AI car; gentle nudges just push it along
+            if (-vn > 4) {
+                car.crashed = 2.5;
+                if (simTime - car.lastHit > 0.4) out.push({ car, speed: -vn, nx: hit.nx, ny: hit.ny });
+                car.lastHit = simTime;
+            }
+        }
+        return out;
     }
 
     _updateGlows() {

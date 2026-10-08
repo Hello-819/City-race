@@ -59,6 +59,34 @@ export class AudioEngine {
         noise().connect(inf); inf.connect(this.intakeGain); this.intakeGain.connect(this.engFilter);
     }
 
+    // police siren: wail sweep, volume from distance to the nearest unit (0..1)
+    siren(level) {
+        if (!this.ctx) return;
+        const ctx = this.ctx, t = ctx.currentTime;
+        if (!this.sirenOsc) {
+            this.sirenOsc = ctx.createOscillator(); this.sirenOsc.type = 'sawtooth';
+            const lfo = ctx.createOscillator(); lfo.type = 'triangle'; lfo.frequency.value = 0.38;
+            const depth = ctx.createGain(); depth.gain.value = 380;
+            lfo.connect(depth); depth.connect(this.sirenOsc.frequency);
+            this.sirenOsc.frequency.value = 1000;
+            const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.9;
+            this.sirenGain = ctx.createGain(); this.sirenGain.gain.value = 0;
+            this.sirenOsc.connect(f); f.connect(this.sirenGain); this.sirenGain.connect(this.master);
+            this.sirenOsc.start(); lfo.start();
+        }
+        this.sirenGain.gain.setTargetAtTime(this.enabled ? level * 0.09 : 0, t, 0.1);
+    }
+
+    boom() {
+        if (!this.ctx || !this.enabled) return;
+        this.impact(40);
+        const ctx = this.ctx, t = ctx.currentTime;
+        const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(60, t + 2.2);
+        const g = ctx.createGain(); g.gain.setValueAtTime(1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 2.4);
+        src.connect(f); f.connect(g); g.connect(this.master); src.start(t); src.stop(t + 2.5);
+    }
+
     setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
 
     update(state) {

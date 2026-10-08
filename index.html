@@ -60,7 +60,37 @@
                 <div class="label">Mode</div>
                 <div class="seg" data-key="mode">
                     <button data-value="timeattack" class="on">Time Attack</button>
+                    <button data-value="sprint">Sprint Race</button>
                     <button data-value="free">Free Roam</button>
+                </div>
+            </div>
+            <div class="section">
+                <div class="label">AI rivals</div>
+                <div class="seg" data-key="rivals">
+                    <button data-value="0" class="on">Off</button>
+                    <button data-value="1">1</button>
+                    <button data-value="3">3</button>
+                    <button data-value="5">5</button>
+                </div>
+            </div>
+            <div class="section two">
+                <div>
+                    <div class="label">Police</div>
+                    <div class="seg" data-key="police"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
+                </div>
+                <div>
+                    <div class="label">Ghost</div>
+                    <div class="seg" data-key="ghost"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
+                </div>
+            </div>
+            <div class="section two">
+                <div>
+                    <div class="label">Pedestrians</div>
+                    <div class="seg" data-key="peds"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
+                </div>
+                <div>
+                    <div class="label">Track</div>
+                    <div class="seg" data-key="track"><button data-value="random" class="on">Random</button><button data-value="daily">Daily</button></div>
                 </div>
             </div>
             <div class="section">
@@ -109,6 +139,18 @@
                     <button data-value="off">Off</button>
                 </div>
             </div>
+            <div class="setting"><span>Rear-view mirror</span>
+                <div class="seg" data-key="mirror">
+                    <button data-value="on" class="on">On</button>
+                    <button data-value="off">Off</button>
+                </div>
+            </div>
+            <div class="setting"><span>Speed effects</span>
+                <div class="seg" data-key="speedfx">
+                    <button data-value="on" class="on">On</button>
+                    <button data-value="off">Off</button>
+                </div>
+            </div>
             <div class="setting"><span>Volume</span><input id="volume" type="range" min="0" max="1" step="0.05" value="0.7"></div>
             <button class="primary close">Done</button>
         </div>
@@ -128,6 +170,7 @@
                 <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Shift down / up (manual gearbox)</td></tr>
                 <tr><td><kbd>H</kbd></td><td>Horn</td></tr>
                 <tr><td><kbd>R</kbd></td><td>Reset car onto the road</td></tr>
+                <tr><td><kbd>V</kbd></td><td>Instant replay (last 45 s)</td></tr>
                 <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
             </table>
             <p class="hint">Gamepads work too: triggers for throttle/brake, left stick to steer, A handbrake, Y camera.</p>
@@ -148,7 +191,11 @@
             <div class="hud-label">SCORE</div>
             <div id="hud-score" class="hud-big">0</div>
             <div id="hud-combo" class="combo"></div>
+            <div id="hud-pos" class="hud-pos"></div>
+            <div id="hud-wanted" class="wanted"></div>
+            <div id="hud-meter" class="meter-box"><div id="hud-meter-label"></div><div class="meter"><i id="hud-meter-bar"></i></div></div>
         </div>
+        <div id="hud-health" class="health"><div class="hud-label">CAR</div><div class="meter"><i id="hud-health-bar"></i></div></div>
         <canvas id="minimap" width="200" height="200"></canvas>
         <canvas id="gauge" width="260" height="260"></canvas>
         <div id="popups"></div>
@@ -156,10 +203,42 @@
         <div id="countdown"></div>
     </div>
 
+    <div id="touch">
+        <div class="tc-left">
+            <button data-key="ArrowLeft" class="tc big">◀</button>
+            <button data-key="ArrowRight" class="tc big">▶</button>
+        </div>
+        <div class="tc-right">
+            <button data-key="Space" class="tc mid">HB</button>
+            <button data-key="ArrowDown" class="tc big brake">BRAKE</button>
+            <button data-key="ArrowUp" class="tc big gas">GAS</button>
+        </div>
+        <div class="tc-top">
+            <button data-key="KeyC" class="tc small">CAM</button>
+            <button data-key="KeyB" class="tc small">BACK</button>
+            <button data-key="KeyH" class="tc small">HORN</button>
+            <button data-key="KeyV" class="tc small">REPLAY</button>
+            <button data-key="Escape" class="tc small">II</button>
+        </div>
+    </div>
+
+    <div id="replay-ui">
+        <div class="replay-tag">REPLAY</div>
+        <div class="replay-bar"><div id="replay-progress"></div></div>
+        <div class="replay-buttons">
+            <button id="rp-restart" class="ghost">⏮</button>
+            <button id="rp-play" class="ghost">⏸</button>
+            <button id="rp-speed" class="ghost">1×</button>
+            <button id="rp-cam" class="ghost">Camera: auto</button>
+            <button id="rp-exit" class="ghost">Exit</button>
+        </div>
+    </div>
+
     <div id="pause" class="screen modal">
         <div class="modal-box">
             <h2>Paused</h2>
             <button id="btn-resume" class="primary">Resume</button>
+            <button id="btn-pause-replay" class="ghost">Watch Replay</button>
             <button id="btn-restart" class="ghost">Restart</button>
             <button id="btn-pause-settings" class="ghost">Settings</button>
             <button id="btn-quit" class="ghost">Main Menu</button>
@@ -171,6 +250,7 @@
             <h2 id="results-title">Time's up!</h2>
             <div id="results-body" class="results"></div>
             <button id="btn-retry" class="primary">Race Again</button>
+            <button id="btn-results-replay" class="ghost">Watch Replay</button>
             <button id="btn-menu" class="ghost">Main Menu</button>
         </div>
     </div>

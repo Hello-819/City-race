@@ -8,7 +8,9 @@ import { CHUNK_SAMPLES, makeGantry } from './common.js';
 const AHEAD = 900, BEHIND = 220;
 
 export class World {
-    constructor(scene, kind, night, seed) {
+    constructor(scene, kind, night, seed, { finishS = null } = {}) {
+        this.finishS = finishS;
+        this.finishGantry = null;
         this.scene = scene;
         this.kind = kind;
         this.seed = seed;
@@ -61,7 +63,12 @@ export class World {
             }
         }
         // checkpoint gantries
+        if (this.finishS && !this.finishGantry && this.finishS < s + AHEAD && this.finishS < road.frontS - 10) {
+            this.finishGantry = makeGantry(road, this.finishS, 'FINISH', '', '#111111', this.gantrySpan);
+            this.scene.add(this.finishGantry);
+        }
         for (const cp of road.checkpoints) {
+            if (this.finishS) break;
             if (cp.s > s + AHEAD || cp.s < s - BEHIND || this.gantries.has(cp.index)) continue;
             const g = makeGantry(road, cp.s, 'CHECKPOINT ' + cp.index, '', '#c0392b', this.gantrySpan);
             this.scene.add(g);
@@ -92,6 +99,7 @@ export class World {
         this.chunks.clear();
         for (const g of this.gantries.values()) this.scene.remove(g);
         this.scene.remove(this.start);
+        if (this.finishGantry) this.scene.remove(this.finishGantry);
         this.builder.dispose();
     }
 }

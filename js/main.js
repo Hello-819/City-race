@@ -7,7 +7,16 @@ import { AudioEngine } from './core/audio.js';
 import { Environment } from './world/environment.js';
 import { World } from './world/world.js';
 import { Traffic } from './traffic.js';
-import { PlayerCar } from './playerCar.js';
+import { Car } from './playerCar.js';
+import { Pedestrians } from './pedestrians.js';
+import { Police } from './police.js';
+import { Racers } from './racers.js';
+import { GhostRecorder, GhostCar, ghostStore } from './ghost.js';
+import { Recorder, ReplayDirector, carChannel, trafficChannel } from './replay.js';
+import { PostFX } from './post.js';
+import { RearMirror } from './mirror.js';
+import { TouchControls } from './touch.js';
+import { vehicleVsVehicle } from './collide.js';
 import { CameraRig } from './cameraRig.js';
 import { Hud, formatTime } from './hud.js';
 import { GameRules } from './game.js';
@@ -25,6 +34,7 @@ const store = {
 const settings = Object.assign({
     car: 'ferrari', color: CARS.ferrari.defaultColor, kind: 'city', time: 'day', mode: 'timeattack', traffic: '1',
     quality: 'medium', units: 'kmh', gearbox: 'auto', assists: 'on', volume: 0.7,
+    rivals: '0', police: 'on', ghost: 'on', peds: 'on', track: 'random', mirror: 'on', speedfx: 'on',
 }, store.get('settings', {}));
 
 let renderer;
@@ -50,6 +60,11 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 4000);
 const camRig = new CameraRig(camera);
 const env = new Environment(renderer, scene);
+const post = new PostFX(renderer, scene, camera);
+const mirror = new RearMirror(renderer);
+const touch = new TouchControls(input);
+let replay = null;        // ReplayDirector while watching
+let replayReturn = null;  // state to go back to
 
 let state = 'loading';
 let race = null;      // { world, traffic, player, game, seed, ... }
@@ -68,6 +83,8 @@ function applyQuality() {
         if (env.sunLight.shadow.map) { env.sunLight.shadow.map.dispose(); env.sunLight.shadow.map = null; }
     }
     scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+    post.enabled = q !== 'low' && settings.speedfx === 'on';
+    mirror.enabled = settings.mirror === 'on';
     resize();
 }
 
@@ -76,6 +93,7 @@ function resize() {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    post.setSize(w, h);
     if (showroom) showroom.resize(w, h);
 }
 window.addEventListener('resize', resize);
@@ -125,7 +143,7 @@ function buildMenu() {
 function saveSettings() { store.set('settings', settings); }
 
 function onSettingChanged(key) {
-    if (key === 'quality') applyQuality();
+    if (key === 'quality' || key === 'speedfx' || key === 'mirror') applyQuality();
     if (key === 'units') hud.units = settings.units;
     if (race && (key === 'gearbox' || key === 'assists')) applyAssists(race.player.veh);
 }
@@ -141,7 +159,19 @@ $('volume').oninput = (e) => { settings.volume = +e.target.value; audio.setVolum
 $('btn-settings').onclick = () => show('settings');
 $('btn-controls').onclick = () => show('controls');
 document.querySelectorAll('.modal .close').forEach((b) => b.onclick = () => b.closest('.modal').classList.remove('active'));
-$('btn-start').onclick = () => startRace(Math.floor(Math.random() * 1e9));
+function trackSeed() {
+    if (settings.track === 'daily') { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
+    return Math.floor(Math.random() * 1e9);
+}
+$('btn-start').onclick = () => startRace(trackSeed());
+$('btn-pause-replay').onclick = () => { show('pause', false); startReplay('paused'); };
+$('btn-results-replay').onclick = () => { show('results', false); startReplay('results'); };
+$('rp-exit').onclick = () => exitReplay();
+$('rp-restart').onclick = () => { replay.restart(); replay.playing = true; };
+$('rp-play').onclick = () => { replay.playing = !replay.playing; if (replay.playing && replay.progress >= 0.999) replay.restart(); };
+$('rp-speed').onclick = () => { const s = [0.25, 0.5, 1, 2]; replay.speed = s[(s.indexOf(replay.speed) + 1) % s.length]; $('rp-speed').textContent = replay.speed + '×'; };
+$('rp-cam').onclick = () => { replay.nextCam(); $('rp-cam').textContent = 'Camera: ' + replay.camName; };
+document.querySelector('.replay-bar').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); replay.seek((e.clientX - r.left) / r.width); };
 $('btn-resume').onclick = () => resume();
 $('btn-restart').onclick = () => { show('pause', false); startRace(race.seed); };
 $('btn-pause-settings').onclick = () => show('settings');
@@ -156,6 +186,10 @@ function disposeRace() {
     race.traffic.dispose();
     race.effects.dispose();
     race.player.dispose();
+    race.peds.dispose();
+    if (race.police) race.police.dispose();
+    if (race.racers) race.racers.dispose();
+    if (race.ghostCar) race.ghostCar.dispose();
     race.world.dispose();
     race = null;
 }
@@ -168,35 +202,52 @@ function startRace(seed) {
     hud.units = settings.units;
     const kind = settings.kind;
     const night = settings.time === 'night';
+    const mode = settings.mode;
     env.apply(settings.time, kind);
-    const world = new World(scene, kind, night, seed);
+    const game = new GameRules(mode, kind);
+    const world = new World(scene, kind, night, seed, { finishS: mode === 'sprint' ? game.finishS : null });
     const rig = createCar(settings.car, { color: settings.color });
-    const player = new PlayerCar(rig, scene, night);
+    const player = new Car(rig, scene, { night, player: true, deformable: true });
     applyAssists(player.veh);
-    const lane = kind === 'city' ? -1.75 - 3.5 : -1.8;
-    player.place(world.road, 12, lane);
+    const nRivals = parseInt(settings.rivals, 10) || 0;
+    const slots = Racers.grid(kind, nRivals);
+    player.place(world.road, nRivals ? slots[0].s : 12, nRivals ? slots[0].d : (kind === 'city' ? -5.25 : -1.8));
     // build everything around the start before the first frame
     for (let i = 0; i < 40; i++) world.update(player.s, rig.root.position, player.veh, 50);
     const traffic = new Traffic(scene, world, kind, night, seed, parseFloat(settings.traffic));
-    traffic.reset(player.s);
-    const game = new GameRules(settings.mode, kind);
+    traffic.reset(player.s + (nRivals ? 40 : 0));
+    const peds = new Pedestrians(scene, world, seed, settings.peds === 'on' && kind === 'city' ? 34 : 0);
+    peds.reset(player.s);
+    const police = settings.police === 'on' ? new Police(scene, world, night, seed) : null;
+    const racers = nRivals ? new Racers(scene, world, nRivals, night, seed) : null;
+    if (racers) racers.place(slots);
     const effects = new Effects(scene, night);
-    race = { world, traffic, player, game, seed, kind, effects };
+    const ghostKey = ghostStore.key(kind, seed, mode);
+    const ghostData = settings.ghost === 'on' ? ghostStore.load(ghostKey) : null;
+    const ghostCar = ghostData ? new GhostCar(scene, ghostData) : null;
+    const recorder = new Recorder([carChannel(player), trafficChannel(traffic), peds.enabled ? peds : null, police, racers]);
+    mirror.attach(rig);
+    race = { world, traffic, player, game, seed, kind, effects, peds, police, racers, ghostCar, ghostKey, ghostRec: new GhostRecorder(), recorder, wreckT: 0, endT: 0 };
     camRig.reset();
     countdown = 3.5;
     state = 'countdown';
     simTime = 0;
     hud.show(true);
+    touch.show(true);
     $('countdown').textContent = '';
-    if (camRig.current !== 'chase') hud.toast(camRigLabel());
+    if (ghostCar) hud.toast('Racing your ghost');
+    else if (camRig.current !== 'chase') hud.toast(camRigLabel());
 }
 
 function camRigLabel() { return ['Chase cam', 'Far chase cam', 'Cockpit view', 'Hood cam', 'Bumper cam'][camRig.mode]; }
 
 function toMenu() {
     show('pause', false);
+    if (replay) exitReplay(true);
     disposeRace();
     hud.show(false);
+    touch.show(false);
+    audio.siren(0);
     state = 'menu';
     show('menu');
     buildMenu();
@@ -211,49 +262,107 @@ function pause() {
     audio.suspend();
 }
 
+// --- replay ---------------------------------------------------------------
+function startReplay(from) {
+    if (!race || race.recorder.count < 10) { hud.toast('Nothing recorded yet'); if (from === 'paused') show('pause'); else show('results'); return; }
+    replayReturn = from;
+    state = 'replay';
+    audio.resume();
+    race.effects.clearTransient();
+    replay = new ReplayDirector(race.recorder, camera, race.world.road, race.player);
+    show('replay-ui');
+    hud.show(false); touch.show(false);
+    $('rp-play').textContent = '⏸'; $('rp-speed').textContent = '1×'; $('rp-cam').textContent = 'Camera: auto';
+}
+
+function exitReplay(silent = false) {
+    show('replay-ui', false);
+    replay = null;
+    if (silent || !race) return;
+    // restore the live state of every actor before continuing
+    race.recorder.apply(race.recorder.endTime, 0);
+    race.player.syncVisual(race.world.road, 0);
+    camRig.reset();
+    camera.fov = 60;
+    if (replayReturn === 'results') { state = 'results'; show('results'); }
+    else { state = 'paused'; show('pause'); hud.show(true); touch.show(true); audio.suspend(); }
+}
+
 function resume() {
     if (state !== 'paused') return;
     show('pause', false);
     show('settings', false);
+    hud.show(true); touch.show(true);
     state = race.prevState || 'race';
     audio.resume();
 }
 
 function finish() {
     state = 'results';
+    audio.siren(0);
     const g = race.game;
     const score = Math.floor(g.score);
     const best = store.get('best', {});
     const k = race.kind + '-' + g.mode;
-    const isBest = !best[k] || score > best[k];
+    const isBest = g.endReason !== 'busted' && g.endReason !== 'wrecked' && (!best[k] || score > best[k]);
     if (isBest) { best[k] = score; store.set('best', best); }
+    // keep the ghost if this run beat the stored one
+    const old = ghostStore.load(race.ghostKey);
+    const better = g.mode === 'sprint' ? (g.finished && (!old || !old.finishTime || g.finishTime < old.finishTime)) : (!old || g.distance > (old.distance || 0));
+    if (better && race.ghostRec.data.length > 20) ghostStore.save(race.ghostKey, { car: settings.car, data: race.ghostRec.data, finishTime: g.finished ? g.finishTime : 0, distance: g.distance });
     const sp = (v) => settings.units === 'kmh' ? Math.round(v * 3.6) + ' km/h' : Math.round(v * 2.237) + ' mph';
-    $('results-title').textContent = g.mode === 'timeattack' ? "Time's up!" : 'Session over';
-    $('results-body').innerHTML = [
+    const titles = { time: "Time's up!", finish: 'Finished!', busted: 'BUSTED!', wrecked: 'WRECKED!' };
+    $('results-title').textContent = titles[g.endReason] || 'Session over';
+    const rows = [
         ['Distance', (g.distance / 1000).toFixed(2) + ' km'],
-        ['Time', formatTime(g.elapsed)],
-        ['Checkpoints', g.checkpointsHit],
-        ['Top speed', sp(g.topSpeed)],
-        ['Near misses', g.nearMisses],
-        ['Crashes', g.crashes],
-    ].map(([a, b]) => `<div>${a}</div><div>${b}</div>`).join('') +
+        ['Time', formatTime(g.finished ? g.finishTime : g.elapsed)],
+    ];
+    if (race.racers) rows.push(['Position', race.racers.position(race.player.s, g.finished, g.finishTime) + ' / ' + (race.racers.units.length + 1)]);
+    if (g.mode === 'timeattack') rows.push(['Checkpoints', g.checkpointsHit]);
+    rows.push(['Top speed', sp(g.topSpeed)], ['Near misses', g.nearMisses], ['Crashes', g.crashes]);
+    if (race.police) rows.push(['Max wanted level', '★'.repeat(race.maxStars || 0) || '-']);
+    $('results-body').innerHTML = rows.map(([a, b]) => `<div>${a}</div><div>${b}</div>`).join('') +
         `<div class="total">Score</div><div class="total">${score.toLocaleString()}</div>` +
-        (isBest ? '<div class="newbest">New personal best!</div>' : '');
+        (isBest ? '<div class="newbest">New personal best!</div>' : '') +
+        (better && race.ghostRec.data.length > 20 && settings.ghost === 'on' ? '<div class="newbest">Ghost saved: race it with Race Again</div>' : '');
     show('results');
 }
 
 // ---------------------------------------------------------------------------
 const _pos2 = { x: 0, y: 0 };
+const NO_INPUT = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
+
+function heatEvent(amount, reason) {
+    const police = race.police;
+    if (!police) return;
+    const up = police.addHeat(amount);
+    race.maxStars = Math.max(race.maxStars || 0, police.stars);
+    if (up) { hud.popup('WANTED ' + '★'.repeat(police.stars), 'bad'); }
+    else if (reason && police.stars === 0 && police.heat > 0.01) hud.popup(reason, 'bad');
+}
+
+function damagePlayer(speed, nx, ny, mult = 1) {
+    const dmg = race.player.applyImpact(speed, nx, ny, mult);
+    if (dmg > 1) {
+        camRig.shake = Math.max(camRig.shake, Math.min(1, dmg / 30));
+        race.damageFlash = Math.min(1, (race.damageFlash || 0) + dmg / 25);
+        const v = race.player.veh;
+        race.effects.impactSparks(v.x - nx * 1.2, v.z + 0.5, -(v.y - ny * 1.2), v.vx, -v.vy, dmg);
+    }
+    return dmg;
+}
+
 function updateRace(dt) {
-    const { world, traffic, player, game } = race;
+    const { world, traffic, player, game, peds, police, racers, effects } = race;
     const veh = player.veh;
 
     if (input.hit('Escape', 'KeyP')) { pause(); return; }
+    if (input.hit('KeyV')) { race.prevState = state; state = 'paused'; startReplay('paused'); return; }
     if (input.hit('KeyC')) hud.toast(camRig.cycle());
     if (input.hit('KeyH')) audio.horn();
     if (input.hit('KeyE')) veh.shift(1);
     if (input.hit('KeyQ')) veh.shift(-1);
-    if (input.hit('KeyR')) {
+    if (input.hit('KeyR') && !player.exploded) {
         const lane = race.kind === 'city' ? -5.25 : -1.8;
         player.place(world.road, player.s, lane);
         camRig.reset();
@@ -279,33 +388,128 @@ function updateRace(dt) {
     }
     if (state === 'race') simTime += dt;
 
-    const impacts = player.update(dt, input, world, controls);
+    // --- player ---
+    const ctl = controls ? { throttle: input.throttle, brake: input.brake, steer: input.steer, handbrake: input.handbrake } : NO_INPUT;
+    const impacts = player.update(dt, ctl, world);
     _pos2.x = veh.x; _pos2.y = veh.y;
     world.update(player.s, player.rig.root.position, _pos2, 6);
 
     const f = world.road.frameAt(player.s);
     const along = veh.vx * f.c + veh.vy * f.sn;
-    const events = traffic.update(dt, veh, player.s, player.d, along, simTime);
-    for (const e of events) {
-        if (e.type === 'crash') { audio.impact(e.strength); camRig.shake = Math.min(1, e.strength / 15); }
-        if (e.type === 'honk') audio.horn();
+
+    // --- traffic ---
+    const obstacles = [{ s: player.s, d: player.d, v: along }];
+    if (police) for (const u of police.units) if (u.active) obstacles.push({ s: u.car.s, d: u.car.d, v: u.car.veh.forwardSpeed });
+    if (racers) for (const u of racers.units) obstacles.push({ s: u.car.s, d: u.car.d, v: u.car.veh.forwardSpeed });
+    peds.obstacles(obstacles);
+    const events = traffic.update(dt, { playerS: player.s, playerD: player.d, playerAlong: along, player: veh, obstacles, simTime });
+    for (const h of traffic.collide(veh, player.s, simTime)) {
+        events.push({ type: 'crash', strength: h.speed });
+        damagePlayer(h.speed, h.nx, h.ny);
+        audio.impact(h.speed);
+        if (h.speed > 4) heatEvent(0.5, 'Careful - the police noticed that');
     }
-    for (const hit of impacts) { audio.impact(hit); camRig.shake = Math.max(camRig.shake, Math.min(1, hit / 20)); }
+    for (const e of events) if (e.type === 'honk') audio.horn();
+
+    // --- walls & props ---
+    for (const hit of impacts) {
+        audio.impact(hit.speed);
+        damagePlayer(hit.speed, hit.nx, hit.ny, hit.kind === 'prop' ? 1.1 : 0.8);
+        if (hit.kind === 'prop' && hit.speed > 3 && !hit.prop.hit) { hit.prop.hit = true; heatEvent(0.4, 'Property damage!'); }
+    }
+    for (const sc of player.scrapes) effects.scrape(sc.x, veh.z + 0.4, -sc.y, veh.vx, -veh.vy);
+
+    // --- AI rivals ---
+    if (racers) {
+        for (const e of racers.update(dt, { player, traffic, world, controls: state === 'race', simTime, finishS: game.mode === 'sprint' ? game.finishS : null, police })) {
+            if (e.type === 'racerContact') { damagePlayer(e.speed, e.nx, e.ny, 0.7); audio.impact(e.speed); }
+            if (e.type === 'racerFinished' && !game.finished) hud.popup(e.u.name + ' finished', 'bad');
+        }
+    }
+
+    // --- pedestrians ---
+    const hitters = [{ veh, s: player.s, isPlayer: true, tag: 'player' }];
+    if (police) for (const u of police.units) if (u.active) hitters.push({ veh: u.car.veh, s: u.car.s, tag: 'police' });
+    if (racers) for (const u of racers.units) hitters.push({ veh: u.car.veh, s: u.car.s, tag: 'racer' });
+    for (const e of peds.update(dt, player.s, camera.position, hitters, traffic)) {
+        if (e.isPlayer) {
+            game.pedsHit++;
+            audio.impact(6);
+            if (game.combo > 1) { game.combo = 1; }
+            heatEvent(1.0);
+            if (!police) hud.popup('PEDESTRIAN HIT', 'bad');
+        }
+    }
+
+    // --- police ---
+    if (police) {
+        for (const e of police.update(dt, { player, traffic, world, effects, simTime })) {
+            if (e.type === 'copContact') {
+                if (e.speed > 3) damagePlayer(e.speed, e.nx, e.ny, 0.3);
+                audio.impact(e.speed);
+                if (e.speed > 6 && !e.unit.rammed) { e.unit.rammed = true; heatEvent(0.6); setTimeout(() => { e.unit.rammed = false; }, 2000); }
+            }
+            if (e.type === 'copWrecked') { audio.boom(); race.recorder.event(simTime, 'explosion', e.pos); heatEvent(1); hud.popup('POLICE CAR WRECKED', 'bad'); }
+            if (e.type === 'roadblock') hud.popup('ROADBLOCK AHEAD', 'bad');
+            if (e.type === 'starLost') hud.popup('Heat dropping', 'cp');
+            if (e.type === 'evaded') hud.popup('EVADED!', 'cp');
+            if (e.type === 'busted' && state === 'race') game.end('busted');
+        }
+        const near = police.nearest ?? Infinity;
+        audio.siren(police.active.some(u => !u.wrecked) ? Math.max(0, 1 - near / 260) : 0);
+    }
+
+    // --- damage state ---
+    if (!player.exploded && player.health <= 0) {
+        player.explode();
+        effects.explode(player.rig.root.position, 1.2);
+        race.recorder.event(simTime, 'explosion', player.rig.root.position);
+        audio.boom();
+        camRig.shake = 1;
+        hud.popup('WRECKED', 'bad');
+    }
+    if (player.exploded && state === 'race') { race.wreckT += dt; if (race.wreckT > 3) game.end('wrecked'); }
 
     if (state === 'race') {
-        const popups = game.update(dt, player, world.road, events, impacts, hud, audio);
+        const popups = game.update(dt, player, world.road, events, impacts.map(i => i.speed), hud, audio);
         for (const p of popups) hud.popup(p.text, p.cls);
-        if (game.over) finish();
+        if (game.over) { race.endT += dt; if (race.endT > (game.endReason === 'finish' ? 1.5 : 0.6)) finish(); }
     }
 
-    race.effects.update(dt, player.rig, veh);
+    // --- effects, ghost, recording ---
+    player.rig.root.updateMatrixWorld(true);
+    effects.tyres(dt, player.rig, veh.skid, veh.speed);
+    effects.damage(dt, player.rig, player.health, player.enginePos);
+    if (racers) for (const u of racers.units) { u.car.rig.root.updateMatrixWorld(true); effects.tyres(dt, u.car.rig, u.car.veh.skid, u.car.veh.speed, u.car.rig); }
+    effects.update(dt);
+    if (state === 'race') {
+        race.ghostRec.record(simTime, player.rig.root);
+        race.recorder.record(simTime);
+    }
+    if (race.ghostCar) race.ghostCar.update(simTime);
+    race.damageFlash = Math.max(0, (race.damageFlash || 0) - dt * 1.5);
+
     env.update(player.rig.root.position, camera);
     camRig.update(dt, player.rig, veh, input);
     audio.update({
-        active: true, rpm: veh.rpm, cylinders: veh.P.cylinders, throttle: veh.throttle, redline: veh.P.redline,
+        active: !player.exploded, rpm: veh.rpm, cylinders: veh.P.cylinders, throttle: veh.throttle, redline: veh.P.redline,
         limiter: veh.limiter, skid: veh.skid, speed: veh.speed, inside: camRig.inside,
     });
-    hud.update({ veh, game, road: world.road, player, traffic });
+    const position = racers ? { place: racers.position(player.s, game.finished, game.finishTime), total: racers.units.length + 1 } : null;
+    hud.update({ veh, game, road: world.road, player, traffic, police, racers, health: player.health, position });
+}
+
+function renderRace(dt) {
+    const p = race.player;
+    const inside = camRig.current === 'cockpit';
+    const needMirror = mirror.enabled && (inside || camRig.current === 'hood' || camRig.current === 'bumper');
+    if (needMirror) mirror.update(scene, p.rig);
+    if (mirror.cockpitPlane) mirror.cockpitPlane.visible = needMirror && inside;
+    const police = race.police;
+    const chase = police && police.active.some(u => !u.wrecked) ? Math.max(0, 1 - (police.nearest ?? 999) / 120) : 0;
+    const low = p.health < 25 ? 0.35 + 0.25 * Math.sin(performance.now() / 150) : 0;
+    post.render(scene, camera, dt, { speed: state === 'replay' ? (p.replaySpeed || 0) : Math.abs(p.veh.forwardSpeed), damage: Math.min(1, (race.damageFlash || 0) + low), police: chase });
+    if (needMirror && (!inside || !mirror.cockpitPlane) && state !== 'replay') mirror.drawHud(window.innerWidth, window.innerHeight);
 }
 
 let last = performance.now();
@@ -320,7 +524,18 @@ function frame(now) {
         renderer.render(showroom.scene, showroom.camera);
     } else if (state === 'race' || state === 'countdown') {
         updateRace(dt);
-        if (race) renderer.render(scene, camera);
+        if (race && (state === 'race' || state === 'countdown')) renderRace(dt);
+    } else if (state === 'replay' && replay) {
+        if (input.hit('Escape', 'KeyV')) exitReplay();
+        else {
+            if (input.hit('KeyC')) $('rp-cam').click();
+            if (input.hit('Space')) $('rp-play').click();
+            replay.update(dt, race.effects);
+            $('replay-progress').style.width = (replay.progress * 100).toFixed(1) + '%';
+            $('rp-play').textContent = replay.playing ? '⏸' : '▶';
+            env.update(race.player.rig.root.position, camera);
+            renderRace(dt);
+        }
     } else if (state === 'paused' || state === 'results') {
         if (input.hit('Escape', 'KeyP') && state === 'paused') resume();
         if (race) renderer.render(scene, camera);
@@ -381,5 +596,5 @@ function simulate(seconds, keys = [], autopilot = false) {
     }
     for (const k of keys) input.keys.delete(k);
 }
-window.__game = { get race() { return race; }, get state() { return state; }, settings, startRace, camRig, input, renderer, scene, camera, simulate };
+window.__game = { get race() { return race; }, get state() { return state; }, settings, startRace, camRig, input, renderer, scene, camera, simulate, startReplay, get replay() { return replay; }, renderRace: (dt) => renderRace(dt) };
 boot();

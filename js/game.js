@@ -20,8 +20,15 @@ export class GameRules {
         this.driftActive = 0;
         this.nextCheckpointS = null;
         this.over = false;
+        this.endReason = null;   // 'time' | 'finish' | 'busted' | 'wrecked'
         this.lastS = null;
+        this.finishS = kind === 'city' ? 5000 : 4500;
+        this.finished = false;
+        this.finishTime = 0;
+        this.pedsHit = 0;
     }
+
+    end(reason) { if (!this.over) { this.over = true; this.endReason = reason; } }
 
     bump(amount) {
         this.combo = clamp(this.combo + amount, 1, 5);
@@ -81,7 +88,7 @@ export class GameRules {
         if (this.comboTimer > 0) { this.comboTimer -= dt; if (this.comboTimer <= 0) this.combo = 1; }
 
         // checkpoints
-        const next = road.checkpoints.find(c => c.index === this.checkpointsHit + 1);
+        const next = this.mode === 'sprint' ? null : road.checkpoints.find(c => c.index === this.checkpointsHit + 1);
         this.nextCheckpointS = next ? next.s : null;
         if (next && player.s >= next.s) {
             this.checkpointsHit++;
@@ -94,7 +101,12 @@ export class GameRules {
 
         if (this.mode === 'timeattack') {
             this.timeLeft -= dt;
-            if (this.timeLeft <= 0) { this.timeLeft = 0; this.over = true; }
+            if (this.timeLeft <= 0) { this.timeLeft = 0; this.end('time'); }
+        }
+        if (this.mode === 'sprint' && player.s >= this.finishS && !this.finished) {
+            this.finished = true; this.finishTime = this.elapsed;
+            this.score += Math.max(0, 20000 - this.elapsed * 60);
+            this.end('finish');
         }
         return out;
     }

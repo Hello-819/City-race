@@ -134,7 +134,12 @@ export class Road {
             x: this.gx, y: this.gy, z: this.gz, th: this.gth, k: this.gk,
             bank, grade: this.grade, s, tag: this.curTag || 'start',
             c: Math.cos(this.gth), sn: Math.sin(this.gth),
+            struct: null,
         };
+        if (this.terrain) {
+            const diff = this.terrain.height(this.gx, this.gy) - this.gz;
+            smp.raw = s < p.startStraight + 60 ? 0 : diff > 13 ? 1 : diff < -9 ? -1 : 0;
+        }
         this.samples.push(smp);
         const idx = this.totalSamples++;
         const key = cellKey(Math.floor(smp.x / CELL), Math.floor(smp.y / CELL));
@@ -168,13 +173,13 @@ export class Road {
 
         if (this.terrain) {
             // aim the road at the terrain a little ahead, with a grade limit
-            const look = 90;
+            const look = 170;
             const tx = this.gx + Math.cos(this.gth) * look;
             const ty = this.gy + Math.sin(this.gth) * look;
             const target = Math.max(this.terrain.water + 5, this.terrain.height(tx, ty));
-            const gTarget = clamp((target - this.gz) / look, -0.085, 0.085);
+            const gTarget = clamp((target - this.gz) / look, -0.075, 0.075);
             const startFlat = this.totalSamples * DS < p.startStraight ? 0.15 : 1;
-            this.grade += clamp(gTarget * startFlat - this.grade, -0.0018, 0.0018);
+            this.grade += clamp(gTarget * startFlat - this.grade, -0.0012, 0.0012);
             this.gz += this.grade * DS;
         }
 
@@ -203,7 +208,29 @@ export class Road {
 
     generateTo(s) {
         while (this.frontS < s) this._step();
+        if (this.terrain) this._classify();
     }
+
+    // Mountain: turn long runs of deep cut into tunnels and big drops into bridges.
+    // Runs are only finalised once they are closed, well behind the generation front.
+    _classify() {
+        if (this.classifiedTo === undefined) this.classifiedTo = 0;
+        const end = this.totalSamples - 160;
+        let i = Math.max(this.classifiedTo, this.base);
+        while (i < end) {
+            const raw = this.sample(i).raw;
+            let j = i;
+            while (j < end && this.sample(j).raw === raw) j++;
+            if (j >= end && raw !== 0) break;           // run still open
+            const len = j - i;
+            if (raw === 1 && len >= 30) for (let k = Math.max(this.base, i - 3); k < Math.min(this.totalSamples, j + 3); k++) this.sample(k).struct = 'tunnel';
+            if (raw === -1 && len >= 12) for (let k = i; k < j; k++) if (!this.sample(k).struct) this.sample(k).struct = 'bridge';
+            i = j;
+        }
+        this.classifiedTo = i;
+    }
+
+    structAt(s) { const i = clamp(Math.round(s / DS), this.base, this.totalSamples - 1); return this.sample(i).struct; }
 
     // Drop samples (and hash entries) far behind the player.
     pruneBefore(s) {

@@ -4,7 +4,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 export const CARS = {
     ferrari: {
@@ -23,6 +24,8 @@ export const CARS = {
         hide: [],
         eye: { up: 0.04, back: 0.58 },
         defaultColor: '#b0101a',
+        engine: 'rear',
+        mirror: { pos: [-0.03, 1.16, -0.4], size: [0.21, 0.062], rot: [-0.1, -0.33, 0] },
         stats: { power: 0.95, speed: 0.95, handling: 0.8 },
         physics: {
             mass: 1480, inertia: 2350, a: 1.50, b: 1.15, cgHeight: 0.46,
@@ -50,6 +53,7 @@ export const CARS = {
         eye: { pos: [0, 0.99, -0.3] },
         steeringAxis: [0, 0.4, 0.92],     // centre-seat layout; PCA on this node is unreliable
         defaultColor: '#1d5fd1',
+        engine: 'front',
         stats: { power: 0.72, speed: 0.78, handling: 0.95 },
         physics: {
             mass: 1290, inertia: 1900, a: 1.40, b: 1.40, cgHeight: 0.48,
@@ -66,6 +70,10 @@ export const PAINTS = ['#b0101a', '#f2b705', '#1d5fd1', '#111214', '#e8e8e6', '#
 export const TRAFFIC_PAINTS = ['#e9e9e7', '#d8d9db', '#1a1b1e', '#2a2c30', '#8b9097', '#5d636b', '#22355e', '#7d1418', '#3a4a3a', '#b9ab8e', '#f0c419', '#efefef', '#4a5560', '#5a1e2e'];
 
 const loaded = {};
+export const TRAFFIC_EXTRA = [];   // raw manifest entries from assets/models/traffic/manifest.json
+const EXTRA_SPECS = {};            // id -> car spec for user-supplied traffic models
+export const TRAFFIC_IDS = ['ferrari', 'concept'];
+const specOf = (id) => CARS[id] || EXTRA_SPECS[id];
 
 export async function loadAssets(onProgress) {
     const draco = new DRACOLoader();
@@ -80,6 +88,18 @@ export async function loadAssets(onProgress) {
         jobs.push(['lod:' + car.id, car.lod]);
         if (car.ao) jobs.push(['ao:' + car.id, car.ao]);
     }
+    jobs.push(['person:michelle', 'assets/models/people/michelle.glb'], ['person:man', 'assets/models/people/man.glb'], ['anims', 'assets/models/people/anims.glb']);
+    // optional user-supplied traffic cars: assets/models/traffic/manifest.json
+    try {
+        const res = await fetch('assets/models/traffic/manifest.json');
+        if (res.ok) {
+            const list = await res.json();
+            for (const t of list) {
+                TRAFFIC_EXTRA.push(t);
+                jobs.push(['extra:' + t.file, 'assets/models/traffic/' + t.file]);
+            }
+        }
+    } catch { /* no extra traffic models */ }
     let done = 0;
     const progress = new Map();
     const report = () => {
@@ -90,8 +110,26 @@ export async function loadAssets(onProgress) {
         const onProg = (e) => { if (e.total) { progress.set(key, e.loaded / e.total); report(); } };
         const ok = (res) => { progress.set(key, 1); done++; report(); loaded[key] = res; resolve(); };
         if (key.startsWith('ao:')) texLoader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; ok(t); }, onProg, reject);
+        else if (key === 'anims') loader.load(url, (g) => ok({ clips: g.animations, scene: g.scene }), onProg, reject);
+        else if (key.startsWith('extra:')) loader.load(url, (g) => ok(g.scene), onProg, () => { progress.set(key, 1); resolve(); });
         else loader.load(url, (g) => ok(key.startsWith('lod:') ? bakeLod(g.scene, CARS[key.slice(4)]) : g.scene), onProg, reject);
     })));
+    // register user-supplied traffic models
+    for (const t of TRAFFIC_EXTRA) {
+        const scene = loaded['extra:' + t.file];
+        if (!scene || !t.wheels) continue;
+        const id = 'x_' + t.file.replace(/\W/g, '_');
+        const rx = (v, d) => new RegExp(v || d, 'i');
+        EXTRA_SPECS[id] = {
+            id, name: t.name || t.file, wheels: t.wheels, hide: t.hide || [],
+            paint: rx(t.paint, 'paint|body|carpaint'), glass: rx(t.glass, 'glass|window'),
+            tail: rx(t.tail, 'tail|brake|rear_?light'), head: rx(t.head, 'head_?light|headlight'),
+            physics: CARS.concept.physics, eye: { up: 0.1, back: 0.5 }, defaultColor: '#888888',
+        };
+        loaded['model:' + id] = scene;
+        try { loaded['lod:' + id] = bakeLod(scene.clone(true), EXTRA_SPECS[id]); TRAFFIC_IDS.push(id); }
+        catch (e) { console.warn('Could not use traffic model', t.file, e); }
+    }
 }
 
 // Merge a low-detail model into a handful of meshes so dozens of traffic cars stay
@@ -113,7 +151,8 @@ function bakeLod(scene, spec) {
         const inv = new THREE.Matrix4().copy(owner.matrixWorld).invert();
         const mats = Array.isArray(m.material) ? m.material : [m.material];
         let geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-        if (!geo.attributes.normal) geo.computeVertexNormals();
+        // simplified meshes ship without normals: smooth them but keep hard creases
+        if (!geo.attributes.normal) geo = toCreasedNormals(geo, Math.PI / 4.5);
         for (const name of Object.keys(geo.attributes)) if (!['position', 'normal'].includes(name)) geo.deleteAttribute(name);
         geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
         const parts = mats.length > 1 && geo.groups.length ? geo.groups : [{ start: 0, count: geo.attributes.position.count, materialIndex: 0 }];
@@ -161,6 +200,7 @@ function bakeLod(scene, spec) {
             const merged = mergeGeometries(geos, false);
             if (!merged) continue;
             merged.computeBoundingSphere();
+            merged.userData.shared = true;   // shared by every traffic clone: never dispose with a chunk
             const mesh = new THREE.Mesh(merged, mat);
             mesh.name = owner === scene ? 'body_' + mat.name : owner.name + '_' + mat.name;
             owner.add(mesh);
@@ -257,7 +297,7 @@ function getBlobTexture() {
 
 // Build a rig from a loaded scene. `lod` = cheap traffic version.
 export function createCar(id, { lod = false, color = null } = {}) {
-    const spec = CARS[id];
+    const spec = specOf(id);
     const src = loaded[(lod ? 'lod:' : 'model:') + id];
     const scene = src.clone(true);
     const holder = new THREE.Group();
@@ -394,4 +434,162 @@ export function createCar(id, { lod = false, color = null } = {}) {
         id, spec, root: holder, body, wheels, steering, eye, mats, dims, wheelbase, track, shadow,
         setColor(col) { for (const m of mats.paint) m.color.set(col); },
     };
+}
+
+
+// ---------------------------------------------------------------------------
+// Pedestrians: skinned humans sharing Mixamo walk / run / idle clips.
+// Retarget the Mixamo clips onto each character in world space, so different
+// rest poses (T-pose vs A-pose, rotated armatures) still produce a clean walk.
+const clipCache = {};
+const boneKey = (n) => n.replace('mixamorig', '').replace(':', '');
+// Bone world rotations in the reference pose. Target: the skin bind pose (what
+// the mesh looks like undeformed). Source: its TPose clip.
+function skeletonInfo(root, tposeClip) {
+    root.updateMatrixWorld(true);
+    const info = new Map();
+    const bind = new Map();
+    root.traverse((o) => {
+        if (!o.isSkinnedMesh) return;
+        o.skeleton.bones.forEach((b, i) => {
+            if (bind.has(b)) return;
+            const m = new THREE.Matrix4().multiplyMatrices(o.bindMatrix, new THREE.Matrix4().copy(o.skeleton.boneInverses[i]).invert());
+            bind.set(b, new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(m)));
+        });
+    });
+    const tpose = new Map();
+    if (tposeClip) for (const t of tposeClip.tracks) if (t.name.endsWith('.quaternion')) tpose.set(boneKey(t.name.slice(0, -11)), new THREE.Quaternion().fromArray(t.values, 0));
+    const bones = [];
+    root.traverse((o) => { if (o.isBone) bones.push(o); });
+    for (const o of bones) {
+        const parent = o.parent && o.parent.isBone ? boneKey(o.parent.name) : null;
+        const parentWorldRest = o.parent && !o.parent.isBone ? o.parent.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion();
+        info.set(boneKey(o.name), { name: o.name, parent, parentWorldRest, armatureWorld: parentWorldRest.clone(), node: o });
+    }
+    // world reference rotations
+    const world = (key) => {
+        const b = info.get(key);
+        if (b.worldRest) return b.worldRest;
+        if (tposeClip) {
+            const pw = b.parent && info.has(b.parent) ? world(b.parent) : b.parentWorldRest;
+            b.worldRest = pw.clone().multiply(tpose.get(key) || b.node.quaternion);
+        } else {
+            b.worldRest = bind.get(b.node) || b.node.getWorldQuaternion(new THREE.Quaternion());
+        }
+        // parent world for bones whose parent is bone: filled by world(parent)
+        return b.worldRest;
+    };
+    for (const k of info.keys()) world(k);
+    for (const b of info.values()) if (b.parent && info.has(b.parent)) b.parentWorldRest = info.get(b.parent).worldRest;
+    return info;
+}
+function personClips(kind) {
+    if (clipCache[kind]) return clipCache[kind];
+    const src = loaded.anims;
+    const S = skeletonInfo(src.scene, src.clips.find(c => c.name === 'TPose'));
+    const T = skeletonInfo(loaded['person:' + kind]);
+    // bones in hierarchy order (parents first)
+    const order = [];
+    const visit = (key) => { if (order.includes(key)) return; const b = T.get(key); if (b.parent && T.has(b.parent)) visit(b.parent); order.push(key); };
+    for (const k of T.keys()) visit(k);
+    // the two rigs may face different directions: find the yaw between them from the left arm
+    const leftDir = (info) => { const v = new THREE.Vector3(0, 1, 0).applyQuaternion(info.get('LeftArm').worldRest); v.y = 0; return v.normalize(); };
+    const ls = leftDir(S), lt = leftDir(T);
+    const yaw = Math.atan2(ls.x, ls.z) - Math.atan2(lt.x, lt.z);
+    const R = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw), Rinv = R.clone().invert();
+    const out = {};
+    for (const clip of src.clips) {
+        if (clip.name === 'TPose') continue;
+        const interps = new Map();
+        for (const t of clip.tracks) if (t.name.endsWith('.quaternion')) interps.set(boneKey(t.name.slice(0, -11)), t.createInterpolant());
+        const fps = 30, frames = Math.max(2, Math.round(clip.duration * fps) + 1);
+        const times = new Float32Array(frames);
+        const values = new Map(order.map(k => [k, new Float32Array(frames * 4)]));
+        const srcWorld = new Map(), tgtWorld = new Map();
+        const q = new THREE.Quaternion(), d = new THREE.Quaternion(), inv = new THREE.Quaternion();
+        for (let f = 0; f < frames; f++) {
+            const time = Math.min(clip.duration, f / fps);
+            times[f] = time;
+            srcWorld.clear(); tgtWorld.clear();
+            // source world rotations
+            const srcW = (key) => {
+                if (srcWorld.has(key)) return srcWorld.get(key);
+                const b = S.get(key);
+                const parentW = b.parent && S.has(b.parent) ? srcW(b.parent) : b.armatureWorld;
+                const local = interps.has(key) ? new THREE.Quaternion().fromArray(interps.get(key).evaluate(time)) : null;
+                const w = local ? parentW.clone().multiply(local) : b.worldRest.clone();
+                srcWorld.set(key, w);
+                return w;
+            };
+            for (const key of order) {
+                const tb = T.get(key);
+                let w;
+                if (S.has(key)) {
+                    // world delta from rest, applied to the target rest
+                    d.copy(srcW(key)).multiply(inv.copy(S.get(key).worldRest).invert());
+                    d.premultiply(R).multiply(Rinv);    // express the delta in the target's facing
+                    w = d.clone().multiply(tb.worldRest);
+                } else {
+                    const pw = tb.parent && tgtWorld.has(tb.parent) ? tgtWorld.get(tb.parent) : tb.parentWorldRest;
+                    w = pw.clone().multiply(inv.copy(tb.parentWorldRest).invert().multiply(tb.worldRest));
+                }
+                tgtWorld.set(key, w);
+                const pw = tb.parent && tgtWorld.has(tb.parent) ? tgtWorld.get(tb.parent) : tb.armatureWorld;
+                q.copy(pw).invert().multiply(w);
+                q.toArray(values.get(key), f * 4);
+            }
+        }
+        const tracks = order.filter(k => S.has(k)).map(k => new THREE.QuaternionKeyframeTrack(T.get(k).name + '.quaternion', times, values.get(k)));
+        out[clip.name] = new THREE.AnimationClip(clip.name, clip.duration, tracks);
+    }
+    clipCache[kind] = out;
+    return out;
+}
+
+const OUTFIT = ['#2b3a55', '#5a2b2b', '#2f4a32', '#6b6b6b', '#1f1f22', '#7a5a3a', '#3b5d8a', '#8a3b5d', '#c9b48a', '#e0e0e0', '#4a3b6b'];
+
+export function createPerson(rng) {
+    const kind = rng.chance(0.5) ? 'michelle' : 'man';
+    const src = loaded['person:' + kind];
+    const model = cloneSkinned(src);
+    const root = new THREE.Group();
+    root.add(model);
+    // normalise height to ~1.6-1.85 m
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const h = box.max.y - box.min.y;
+    const target = (kind === 'michelle' ? 1.68 : 1.8) * rng.range(0.94, 1.05);
+    const sc = target / (h || 1);
+    model.scale.multiplyScalar(sc);
+    model.position.y = -box.min.y * sc;
+    model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.frustumCulled = false;
+        const tint = (m) => {
+            const c = m.clone();
+            if (kind === 'man' && /Outfit_(Top|Bottom)/.test(m.name)) {
+                // recolour clothing: keep the texture's shading, replace its hue
+                c.color.set(rng.pick(OUTFIT)).multiplyScalar(1.5);
+                c.onBeforeCompile = (sh) => {
+                    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>',
+                        '#include <map_fragment>\n diffuseColor.rgb = diffuse * vec3(dot(diffuseColor.rgb / max(diffuse, vec3(0.001)), vec3(0.299, 0.587, 0.114))) * 1.6;');
+                };
+                c.customProgramCacheKey = () => 'outfit';
+            }
+            else if (kind === 'michelle') c.color.multiplyScalar(rng.range(0.75, 1.05));
+            return c;
+        };
+        o.material = Array.isArray(o.material) ? o.material.map(tint) : tint(o.material);
+    });
+    const mixer = new THREE.AnimationMixer(model);
+    const set = personClips(kind);
+    const actions = {};
+    for (const name of ['Idle', 'Walk', 'Run']) {
+        actions[name] = mixer.clipAction(set[name]);
+        actions[name].play();
+        actions[name].setEffectiveWeight(name === 'Walk' ? 1 : 0);
+    }
+    actions.Walk.time = rng.range(0, 1);
+    return { root, model, mixer, actions, kind };
 }

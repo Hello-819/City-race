@@ -48,8 +48,34 @@ export class Hud {
         this.text('hud-combo', game.combo > 1 ? 'x' + game.combo.toFixed(1) : '');
         this.text('hud-dist', (game.distance / 1000).toFixed(2) + ' km');
         const next = game.nextCheckpointS;
-        this.text('hud-next', next != null ? 'CHECKPOINT  ' + Math.max(0, Math.round(next - player.s)) + ' m' : '');
-        this._drawMap(road, player, traffic);
+        if (game.mode === 'sprint') this.text('hud-next', 'FINISH  ' + Math.max(0, Math.round(game.finishS - player.s)) + ' m');
+        else this.text('hud-next', next != null ? 'CHECKPOINT  ' + Math.max(0, Math.round(next - player.s)) + ' m' : '');
+        // race position
+        const pos = state.position;
+        this.$('hud-pos').innerHTML = pos ? `${pos.place}<small>/${pos.total}</small>` : '';
+        // wanted level
+        const police = state.police;
+        const stars = police ? police.stars : 0;
+        const key = stars + ':' + (police && police.active.length > 0);
+        if (this.lastStars !== key) {
+            this.lastStars = key;
+            this.$('hud-wanted').innerHTML = stars ? Array.from({ length: 5 }, (_, i) => `<span class="${i < stars ? '' : 'off'}">★</span>`).join('') : '';
+            this.$('hud-wanted').classList.toggle('flash', !!police && police.active.length > 0);
+        }
+        const mb = this.$('hud-meter');
+        if (police && stars > 0 && police.bust > 0.02) {
+            mb.className = 'meter-box show bust'; this.text('hud-meter-label', 'BUSTED'); this.$('hud-meter-bar').style.width = police.bust * 100 + '%';
+        } else if (police && stars > 0) {
+            mb.className = 'meter-box show'; this.text('hud-meter-label', police.evade > 0.02 ? 'EVADING' : 'PURSUIT'); this.$('hud-meter-bar').style.width = police.evade * 100 + '%';
+        } else mb.className = 'meter-box';
+        // car health
+        const h = Math.round(state.health ?? 100);
+        if (this.lastHealth !== h) {
+            this.lastHealth = h;
+            this.$('hud-health-bar').style.width = h + '%';
+            this.$('hud-health').className = 'health' + (h < 25 ? ' low' : h < 55 ? ' mid' : '');
+        }
+        this._drawMap(road, player, traffic, state);
     }
 
     _drawGauge(veh, disp) {
@@ -97,7 +123,7 @@ export class Hud {
         c.fillText('x1000 rpm', cx, cy - R * 0.1);
     }
 
-    _drawMap(road, player, traffic) {
+    _drawMap(road, player, traffic, state = {}) {
         const c = this.mctx, W = this.map.width, H = this.map.height;
         c.clearRect(0, 0, W, H);
         c.save();
@@ -131,6 +157,9 @@ export class Hud {
             c.fillStyle = t.lane.dir > 0 ? '#ffd24a' : '#4ac8ff';
             c.beginPath(); c.arc(px, py, 2.6, 0, Math.PI * 2); c.fill();
         }
+        const dot = (x, y, col, r = 3) => { const [px, py] = tx(x, y); c.fillStyle = col; c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.fill(); };
+        if (state.racers) for (const u of state.racers.units) dot(u.car.veh.x, u.car.veh.y, '#ff6ad5', 3.5);
+        if (state.police) for (const u of state.police.units) if (u.active) dot(u.car.veh.x, u.car.veh.y, Math.sin(performance.now() / 90) > 0 ? '#ff2020' : '#2050ff', 4);
         c.restore();
         // player arrow
         c.save();
