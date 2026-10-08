@@ -12,15 +12,15 @@ export class MountainTerrain {
     constructor(seed) {
         this.n = new Simplex(seed);
         this.n2 = new Simplex(seed + 17);
-        this.water = -32;
-        this.snow = 165;
+        this.water = -45;
+        this.snow = 135;
     }
     height(x, y) {
         const n = this.n, n2 = this.n2;
-        const big = n.fbm(x / 1400, y / 1400, 3) * 95;
-        const ridge = n2.ridged(x / 520 + 31.7, y / 520 - 11.3, 4) * 150;
-        const detail = n.fbm(x / 70 + 5, y / 70, 2) * 3.5;
-        return big + ridge - 55 + detail;
+        const big = n.fbm(x / 1500, y / 1500, 3) * 130;
+        const ridge = n2.ridged(x / 480 + 31.7, y / 480 - 11.3, 5) * 230;
+        const detail = n.fbm(x / 70 + 5, y / 70, 2) * 4;
+        return big + ridge - 90 + detail;
     }
 }
 
@@ -49,6 +49,9 @@ export class MountainBuilder {
             sign: new THREE.MeshStandardMaterial({ map: chevronTexture(), roughness: 0.5, emissive: 0xffffff, emissiveMap: chevronTexture(), emissiveIntensity: night ? 0.25 : 0.05 }),
             signPost: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.5, roughness: 0.6 }),
             reflector: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff8800, emissiveIntensity: night ? 1.5 : 0.1 }),
+            tunnel: new THREE.MeshStandardMaterial({ color: 0x8a8782, roughness: 0.9, side: THREE.DoubleSide }),
+            tunnelLight: new THREE.MeshStandardMaterial({ color: 0xffe2a8, emissive: 0xffd590, emissiveIntensity: 2.5, side: THREE.DoubleSide }),
+            concrete: new THREE.MeshStandardMaterial({ color: 0xa29d94, roughness: 0.85, side: THREE.DoubleSide }),
         };
         // terrain detail texture repeats every 8 m in world space
         this.mat.terrain.onBeforeCompile = (sh) => {
@@ -118,7 +121,7 @@ export class MountainBuilder {
         this.ring.position.x = playerPos.x; this.ring.position.z = playerPos.z;
         const R = 950;
         const road = this.road;
-        const frontY = road.sample(road.totalSamples - 1).y;
+        const frontY = road.sample(road.clampIndex(road.classifiedTo ?? road.totalSamples - 1)).y;
         const ptx = Math.floor(player2D.x / TILE), pty = Math.floor(player2D.y / TILE);
         const span = Math.ceil(R / TILE);
         const want = [];
@@ -156,8 +159,12 @@ export class MountainBuilder {
         if (!n) return { h, dist: Infinity };
         const P = this.road.p;
         const dist = n.dist;
+        const struct = this.road.sample(this.road.clampIndex(n.idx)).struct;
+        if (struct === 'tunnel') return { h: Math.max(h, n.z + 9), dist };
+        if (struct === 'bridge') return { h: Math.min(h, n.z - 4), dist };
         const flat = P.guardrail + 1.0;
-        const bw = 16 + 14 * (0.5 + 0.5 * this.forest.noise(x / 90, y / 90));
+        const low = h < n.z;
+        const bw = (low ? 6 : 14) + (low ? 8 : 16) * (0.5 + 0.5 * this.forest.noise(x / 90, y / 90));
         const roadH = n.z - 0.32;
         const t = smoothstep(flat, flat + bw, dist);
         // keep the road deck clear: terrain under / beside the road sits just below it
@@ -279,19 +286,56 @@ export class MountainBuilder {
         const group = new THREE.Group();
         const mb = new MultiBuilder();
         mb.map.set('road', roadSurface(road, i0, i1, 'mountain'));
+        const st = (a) => road.structAt(a);
+        const open = (a, b) => st(a) === 'tunnel' || st(b) === 'tunnel';        // skip in tunnels
+        const notTunnel = (a, b) => !(st(a) === 'tunnel' && st(b) === 'tunnel');
+        const notBridge = (a, b) => !(st(a) === 'bridge' || st(b) === 'bridge');
         const gr = mb.get('gravel');
-        ribbon(gr, road, i0, i1, P.roadHalf, P.shoulderOuter + 0.8, 0, -0.12, { uMode: 'm', uScale: 1 / 2, vPeriod: 2 });
-        ribbon(gr, road, i0, i1, -P.shoulderOuter - 0.8, -P.roadHalf, -0.12, 0, { uMode: 'm', uScale: 1 / 2, vPeriod: 2 });
+        ribbon(gr, road, i0, i1, P.roadHalf, P.shoulderOuter + 0.8, 0, -0.12, { uMode: 'm', uScale: 1 / 2, vPeriod: 2, skip: (a, b) => st(a) === 'bridge' });
+        ribbon(gr, road, i0, i1, -P.shoulderOuter - 0.8, -P.roadHalf, -0.12, 0, { uMode: 'm', uScale: 1 / 2, vPeriod: 2, skip: (a, b) => st(a) === 'bridge' });
         const rail = mb.get('rail');
         for (const side of [-1, 1]) {
             const d = side * P.guardrail;
-            ribbon(rail, road, i0, i1, d, d, 0.42, 0.78, { uMode: 'm', vPeriod: 4, flip: side < 0 });
+            ribbon(rail, road, i0, i1, d, d, 0.42, 0.78, { uMode: 'm', vPeriod: 4, flip: side < 0, skip: open });
         }
-        const meshes = mb.meshes({ road: this.mat.road, gravel: this.mat.gravel, rail: this.mat.rail }, { castShadow: false, receiveShadow: true, computeNormals: true });
-        meshes.forEach(m => group.add(m));
+        // tunnels: arched concrete tube with a light strip
+        const arch = [[6.4, -0.1], [6.4, 4.6], [5.5, 6.3], [3.2, 7.4], [0, 7.8], [-3.2, 7.4], [-5.5, 6.3], [-6.4, 4.6], [-6.4, -0.1]];
+        const tun = mb.get('tunnel'), tl = mb.get('tunnelLight');
+        for (let k = 0; k < arch.length - 1; k++) {
+            const [d0, h0] = arch[k], [d1, h1] = arch[k + 1];
+            ribbon(tun, road, i0, i1, d0, d1, h0, h1, { uMode: 'm', vPeriod: 6, skip: notTunnel });
+        }
+        ribbon(tl, road, i0, i1, -0.3, 0.3, 7.75, 7.75, { vPeriod: 6, skip: notTunnel });
+        // bridges: deck slab and parapets
+        const con = mb.get('concrete');
+        ribbon(con, road, i0, i1, -6.6, 6.6, -1.5, -1.5, { uMode: 'm', vPeriod: 6, skip: notBridge });
+        for (const side of [-1, 1]) {
+            ribbon(con, road, i0, i1, side * 6.6, side * 6.6, -1.5, 0.05, { uMode: 'm', vPeriod: 6, skip: notBridge });
+            ribbon(con, road, i0, i1, side * 6.3, side * 6.3, 0, 0.95, { uMode: 'm', vPeriod: 6, skip: notBridge });
+        }
+        // portals and piers
+        for (let i = i0; i < i1; i++) {
+            const a = road.sample(i), b = road.sample(i + 1);
+            if (!a || !b) continue;
+            if ((a.struct === 'tunnel') !== (b.struct === 'tunnel')) {
+                const f = a.struct === 'tunnel' ? a : b;
+                const px = f.x, py = f.y;
+                con.box(px - f.sn * 8.4, f.z - 1, -(py + f.c * 8.4), 3, 11, 4, f.th);
+                con.box(px + f.sn * 8.4, f.z - 1, -(py - f.c * 8.4), 3, 11, 4, f.th);
+                con.box(px, f.z + 7.6, -py, 3, 3.2, 19.8, f.th);
+            }
+            if (a.struct === 'bridge' && i % 14 === 0) {
+                const ground = this.terrain.height(a.x, a.y);
+                const h = a.z - 1.5 - ground;
+                if (h > 1) con.box(a.x, ground - 1, -a.y, 3.2, h + 1, 9, a.th);
+            }
+        }
+        const meshes = mb.meshes({ road: this.mat.road, gravel: this.mat.gravel, rail: this.mat.rail, tunnel: this.mat.tunnel, tunnelLight: this.mat.tunnelLight, concrete: this.mat.concrete }, { castShadow: false, receiveShadow: true, computeNormals: true });
+        meshes.forEach(m => { if (m.material === this.mat.tunnel || m.material === this.mat.concrete) m.castShadow = true; group.add(m); });
 
         const posts = [], reflectors = [];
         for (let s = Math.ceil(s0 / 4) * 4; s < s1; s += 4) {
+            if (road.structAt(s) === 'tunnel') continue;
             for (const side of [-1, 1]) {
                 const p = road.pointAt(s, side * (P.guardrail + 0.08));
                 posts.push({ x: p.px, y: p.pz - 0.25, z: -p.py, ry: p.th, sx: 0.12, sy: 1.05, sz: 0.16 });
@@ -304,7 +348,7 @@ export class MountainBuilder {
         add(instanced(box, this.mat.reflector, reflectors, { castShadow: false }));
 
         for (const sg of road.signs) {
-            if (sg.s < s0 || sg.s >= s1) continue;
+            if (sg.s < s0 || sg.s >= s1 || road.structAt(sg.s)) continue;
             const p = road.pointAt(sg.s, sg.side * (P.guardrail + 0.7));
             const g = new THREE.Group();
             g.position.set(p.px, p.pz, -p.py);

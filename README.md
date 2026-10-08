@@ -34,10 +34,33 @@ Then open http://localhost:8000. It also works as-is on GitHub Pages.
   - *Mountain*: heightfield terrain blended into the road (cuttings and
     embankments), pine forests, rocks, a lake, guardrails, curve chevrons and
     a distant snowy range.
+- **Districts** – the city changes as you drive: downtown towers, midtown shopfronts
+  with awnings and plazas, residential streets with houses, lawns and parked cars,
+  parks with ponds, waterfront promenades and suspension bridges over the river,
+  elevated railways crossing overhead.
+- **Mountains** – huge ridges and valleys; the road bores through mountains in
+  lit tunnels and crosses valleys on bridges, with steep drops off the road edge.
 - **Traffic** – AI cars in both directions (Intelligent Driver Model, lane changes,
-  honking), with collisions.
-- **Game modes** – Time Attack (checkpoints add time) or Free Roam. Score from
-  distance, speed, near misses, drifts and a combo multiplier; best scores are saved.
+  honking, stopping for people crossing), with collisions. More car models can be
+  dropped into `assets/models/traffic/` (see the README there).
+- **Pedestrians** – animated people walk both sidewalks, wait for gaps and cross
+  the road (some jaywalk), run from speeding cars and get knocked over if hit.
+- **Police** – hitting people, crashing into cars or knocking down lamp posts raises
+  your wanted level. Police cars chase, ram and set up roadblocks; stop near them
+  and you are busted, stay out of sight to lose the heat. Police cars can be wrecked.
+- **Damage** – crashes dent the actual car body, break lights, then the engine
+  smokes, catches fire and finally explodes.
+- **AI rivals** – race 1, 3 or 5 opponents in any mode, with live positions.
+- **Ghost** – your best run on a track is saved and raced as a ghost car (use the
+  *Daily* track, or *Race Again*).
+- **Replay** – press `V` (or use the pause/results menus) to watch the last 45 s
+  with trackside, orbit, helicopter and wheel cameras.
+- **Rear-view mirror** – a real rendered mirror in the cockpit (HUD mirror in hood
+  and bumper views). **Speed effects** – radial blur and speed lines at high speed.
+- **Touch controls** on phones and tablets.
+- **Game modes** – Time Attack (checkpoints add time), Sprint Race (5 km to the
+  finish) or Free Roam. Score from distance, speed, near misses, drifts and a combo
+  multiplier; best scores are saved.
 - Synthesised engine/tyre/wind audio, HUD with tachometer and minimap,
   gamepad support, graphics quality settings.
 
@@ -54,6 +77,7 @@ Then open http://localhost:8000. It also works as-is on GitHub Pages.
 | `Q` / `E` | Shift down / up (manual gearbox) |
 | `H` | Horn |
 | `R` | Reset car onto the road |
+| `V` | Instant replay |
 | `Esc` / `P` | Pause |
 
 ## Project layout
@@ -84,5 +108,8 @@ vendor/three/              three.js r160 (MIT)
   CC BY 4.0, based on the public-domain "Free Concept Car 004" by Unity Fan.
   Textures were resized/recompressed and a simplified traffic version was made;
   Khronos logos are hidden in game.
+- **Pedestrians**: "Michelle" (Mixamo) and a Ready Player Me avatar from the three.js
+  examples; walk / run / idle animations from the three.js "Soldier" example (Mixamo),
+  retargeted in code.
 - [three.js](https://threejs.org) r160, MIT licence (`vendor/three/LICENSE`).
 - Everything else (buildings, terrain, textures, sounds) is generated in code.

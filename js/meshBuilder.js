@@ -55,6 +55,22 @@ export class GeoBuilder {
         }
     }
 
+    // gable roof: ridge along local X
+    gable(cx, y, cz, sx, sz, h, yaw) {
+        const c = Math.cos(yaw), s = Math.sin(yaw);
+        const P = (lx, ly, lz) => [cx + lx * c + lz * s, y + ly, cz - lx * s + lz * c];
+        const hx = sx / 2, hz = sz / 2;
+        const v = (p, u, w) => this.vertex(...p, u, w);
+        // slopes
+        let a = v(P(-hx, 0, hz), 0, 0), b = v(P(hx, 0, hz), sx / 4, 0), d = v(P(hx, h, 0), sx / 4, 1), e = v(P(-hx, h, 0), 0, 1);
+        this.quad(a, b, d, e);
+        a = v(P(hx, 0, -hz), 0, 0); b = v(P(-hx, 0, -hz), sx / 4, 0); d = v(P(-hx, h, 0), sx / 4, 1); e = v(P(hx, h, 0), 0, 1);
+        this.quad(a, b, d, e);
+        // gable ends
+        a = v(P(hx, 0, hz), 0, 0); b = v(P(hx, 0, -hz), 1, 0); d = v(P(hx, h, 0), 0.5, 1); this.tri(a, b, d);
+        a = v(P(-hx, 0, -hz), 0, 0); b = v(P(-hx, 0, hz), 1, 0); d = v(P(-hx, h, 0), 0.5, 1); this.tri(a, b, d);
+    }
+
     build(computeNormals = false) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
@@ -106,11 +122,12 @@ export function ribbon(builder, road, i0, i1, d0, d1, h0, h1, { uScale = 1, vPer
             return [x, z, -y];
         };
         const A = edge(d0, h0), B = edge(d1, h1);
-        const v = s.s / vPeriod;
-        const uA = uMode === 'norm' ? 0 : d0 * uScale;
-        const uB = uMode === 'norm' ? uScale : d1 * uScale;
-        const ia = builder.vertex(...A, uA, v);
-        const ib = builder.vertex(...B, uB, v);
+        let v = s.s / vPeriod, vA = v, vB = v;
+        let uA = uMode === 'norm' ? 0 : d0 * uScale;
+        let uB = uMode === 'norm' ? uScale : d1 * uScale;
+        if (uMode === 'world') { uA = A[0] * uScale; vA = A[2] * uScale; uB = B[0] * uScale; vB = B[2] * uScale; }
+        const ia = builder.vertex(...A, uA, vA);
+        const ib = builder.vertex(...B, uB, vB);
         if (prev && !(skip && skip(prev.s, s.s))) {
             // default winding faces +Y when d0 < d1 (or outward for vertical strips with flip)
             if (flip) builder.quad(prev.ia, prev.ib, ib, ia);

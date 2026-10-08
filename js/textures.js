@@ -335,3 +335,79 @@ export function neonTexture(text, color) {
         return toTexture(c, { repeat: false });
     });
 }
+
+const SHOPS = ['CAFE', 'BAKERY', 'BOOKS', 'PHARMACY', 'DELI', 'FLOWERS', 'SHOES', 'BANK', 'SUSHI', 'PIZZA', 'MARKET', 'TAILOR', 'GYM', 'BARBER', 'NOODLES', 'RECORDS'];
+// Ground-floor shops: one texture = 16 m wide x 4.2 m tall, four storefronts.
+export function shopTextures() {
+    return cached('shops', () => {
+        const W = 1024, H = 256;
+        const [c, ctx] = canvas(W, H);
+        const [e, ectx] = canvas(W, H);
+        const rnd = mulberry32(404);
+        ectx.fillStyle = '#000'; ectx.fillRect(0, 0, W, H);
+        const fronts = ['#2c2f36', '#6b2a24', '#24433a', '#3d3550', '#1f3550', '#5a4a2a'];
+        for (let i = 0; i < 4; i++) {
+            const x0 = i * 256;
+            ctx.fillStyle = fronts[Math.floor(rnd() * fronts.length)]; ctx.fillRect(x0, 0, 256, H);
+            // sign band
+            const sign = SHOPS[Math.floor(rnd() * SHOPS.length)];
+            ctx.fillStyle = '#111'; ctx.fillRect(x0 + 10, 14, 236, 44);
+            const hue = Math.floor(rnd() * 360);
+            ctx.fillStyle = `hsl(${hue},70%,70%)`; ctx.font = 'bold 30px "Segoe UI", Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(sign, x0 + 128, 37);
+            ectx.fillStyle = `hsl(${hue},80%,65%)`; ectx.font = ctx.font; ectx.textAlign = 'center'; ectx.textBaseline = 'middle'; ectx.fillText(sign, x0 + 128, 37);
+            // window + door
+            const g = ctx.createLinearGradient(0, 70, 0, 240);
+            g.addColorStop(0, '#9fb6c8'); g.addColorStop(1, '#3c4a57');
+            ctx.fillStyle = g; ctx.fillRect(x0 + 14, 72, 160, 170);
+            ctx.fillStyle = '#20262c'; ctx.fillRect(x0 + 188, 80, 54, 176);
+            ctx.fillStyle = '#7d8f9c'; ctx.fillRect(x0 + 194, 88, 42, 100);
+            ctx.strokeStyle = '#ddd'; ctx.lineWidth = 4; ctx.strokeRect(x0 + 14, 72, 160, 170);
+            // shop interior glow at night
+            const ig = ectx.createLinearGradient(0, 72, 0, 242);
+            ig.addColorStop(0, 'rgba(255,225,170,0.95)'); ig.addColorStop(1, 'rgba(160,120,70,0.5)');
+            ectx.fillStyle = ig; ectx.fillRect(x0 + 16, 74, 156, 166);
+            // goods silhouettes
+            for (let k = 0; k < 6; k++) { ctx.fillStyle = `rgba(0,0,0,${0.15 + rnd() * 0.2})`; ctx.fillRect(x0 + 20 + k * 25, 180 + rnd() * 30, 18, 60); }
+        }
+        return { map: toTexture(c), emissive: toTexture(e) };
+    });
+}
+
+// Houses: siding with windows; one texture = 8 m wide x 6 m tall (two floors).
+export function houseTextures(variant) {
+    return cached('house' + variant, () => {
+        const W = 512, H = 384;
+        const [c, ctx] = canvas(W, H);
+        const [e, ectx] = canvas(W, H);
+        const rnd = mulberry32(900 + variant);
+        const cols = ['#d8cbb0', '#b9c7cf', '#e6e1d6', '#c9a98a', '#9fb39a', '#d9b8b0'];
+        ctx.fillStyle = cols[variant % cols.length]; ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 2;
+        for (let y = 0; y < H; y += 10) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+        ectx.fillStyle = '#000'; ectx.fillRect(0, 0, W, H);
+        for (let f = 0; f < 2; f++) for (let b = 0; b < 3; b++) {
+            const x = 40 + b * 160, y = 40 + f * 192;
+            ctx.fillStyle = '#f4f4f0'; ctx.fillRect(x - 6, y - 6, 92, 122);
+            ctx.fillStyle = '#4a5866'; ctx.fillRect(x, y, 80, 110);
+            ctx.fillStyle = '#f4f4f0'; ctx.fillRect(x + 38, y, 4, 110); ctx.fillRect(x, y + 53, 80, 4);
+            if (rnd() < 0.45) { ectx.fillStyle = '#ffcf8a'; ectx.globalAlpha = 0.8; ectx.fillRect(x, y, 80, 110); ectx.globalAlpha = 1; }
+        }
+        return { map: toTexture(c), emissive: toTexture(e) };
+    });
+}
+
+export function grassTexture() {
+    return cached('grass', () => {
+        const S = 256;
+        const [c, ctx] = canvas(S, S);
+        const rnd = mulberry32(55);
+        ctx.fillStyle = '#4e7a33'; ctx.fillRect(0, 0, S, S);
+        for (let i = 0; i < 9000; i++) {
+            const g = 90 + rnd() * 70;
+            ctx.fillStyle = `rgba(${g * 0.5},${g},${g * 0.35},0.5)`;
+            ctx.fillRect(rnd() * S, rnd() * S, 1, 2 + rnd() * 3);
+        }
+        return toTexture(c);
+    });
+}
