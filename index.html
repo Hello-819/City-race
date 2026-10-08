@@ -3,30 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Procedural Racing Game</title>
+    <title>City Race</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2214%22 fill=%22%23ff3b30%22/%3E%3C/svg%3E">
     <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "./vendor/three/build/three.module.min.js",
+            "three/addons/": "./vendor/three/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
-    <div id="main-menu" class="overlay active">
-        <h1>Procedural Racing</h1>
-        <div class="menu-options">
-            <button id="btn-city">City Mode</button>
-            <button id="btn-mountain">Mountain Mode</button>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="loading" class="screen active">
+        <div class="brand">CITY<span>RACE</span></div>
+        <div class="bar"><div id="load-bar"></div></div>
+        <div id="load-text">Loading car models…</div>
+    </div>
+
+    <div id="menu" class="screen">
+        <div class="menu-panel">
+            <div class="brand small">CITY<span>RACE</span></div>
+            <div class="subtitle">Endless procedural streets &amp; mountain passes</div>
+
+            <div class="section">
+                <div class="label">Car</div>
+                <div id="car-list" class="cards"></div>
+                <div id="car-blurb" class="blurb"></div>
+                <div id="car-stats" class="stats"></div>
+            </div>
+
+            <div class="section">
+                <div class="label">Paint</div>
+                <div id="paints" class="swatches"></div>
+            </div>
+
+            <div class="section">
+                <div class="label">Location</div>
+                <div class="seg" data-key="kind">
+                    <button data-value="city" class="on">City</button>
+                    <button data-value="mountain">Mountain Pass</button>
+                </div>
+            </div>
+            <div class="section">
+                <div class="label">Time of day</div>
+                <div class="seg" data-key="time">
+                    <button data-value="day" class="on">Day</button>
+                    <button data-value="sunset">Sunset</button>
+                    <button data-value="night">Night</button>
+                </div>
+            </div>
+            <div class="section">
+                <div class="label">Mode</div>
+                <div class="seg" data-key="mode">
+                    <button data-value="timeattack" class="on">Time Attack</button>
+                    <button data-value="free">Free Roam</button>
+                </div>
+            </div>
+            <div class="section">
+                <div class="label">Traffic</div>
+                <div class="seg" data-key="traffic">
+                    <button data-value="0.5">Light</button>
+                    <button data-value="1" class="on">Normal</button>
+                    <button data-value="1.6">Heavy</button>
+                </div>
+            </div>
+
+            <button id="btn-start" class="primary">Start Race</button>
+            <div class="row-buttons">
+                <button id="btn-settings" class="ghost">Settings</button>
+                <button id="btn-controls" class="ghost">Controls</button>
+            </div>
+            <div id="best" class="best"></div>
         </div>
     </div>
 
-    <div id="hud" class="overlay">
-        <div class="hud-item">Speed: <span id="hud-speed">0</span> MPH</div>
-        <div class="hud-item">Score: <span id="hud-score">0</span></div>
-        <div class="hud-item">Mode: <span id="hud-mode">City</span></div>
+    <div id="settings" class="screen modal">
+        <div class="modal-box">
+            <h2>Settings</h2>
+            <div class="setting"><span>Graphics quality</span>
+                <div class="seg" data-key="quality">
+                    <button data-value="low">Low</button>
+                    <button data-value="medium" class="on">Medium</button>
+                    <button data-value="high">High</button>
+                </div>
+            </div>
+            <div class="setting"><span>Speed units</span>
+                <div class="seg" data-key="units">
+                    <button data-value="kmh" class="on">km/h</button>
+                    <button data-value="mph">mph</button>
+                </div>
+            </div>
+            <div class="setting"><span>Transmission</span>
+                <div class="seg" data-key="gearbox">
+                    <button data-value="auto" class="on">Automatic</button>
+                    <button data-value="manual">Manual</button>
+                </div>
+            </div>
+            <div class="setting"><span>Driving assists (TCS / ESC / ABS)</span>
+                <div class="seg" data-key="assists">
+                    <button data-value="on" class="on">On</button>
+                    <button data-value="off">Off</button>
+                </div>
+            </div>
+            <div class="setting"><span>Volume</span><input id="volume" type="range" min="0" max="1" step="0.05" value="0.7"></div>
+            <button class="primary close">Done</button>
+        </div>
     </div>
 
-    <canvas id="gameCanvas"></canvas>
+    <div id="controls" class="screen modal">
+        <div class="modal-box">
+            <h2>Controls</h2>
+            <table class="keys">
+                <tr><td><kbd>W</kbd> / <kbd>↑</kbd></td><td>Throttle</td></tr>
+                <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>Brake / reverse (hold when stopped)</td></tr>
+                <tr><td><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></td><td>Steer</td></tr>
+                <tr><td><kbd>Space</kbd></td><td>Handbrake</td></tr>
+                <tr><td><kbd>C</kbd></td><td>Change camera (chase, far, cockpit, hood, bumper)</td></tr>
+                <tr><td><kbd>B</kbd></td><td>Look back</td></tr>
+                <tr><td>Mouse drag</td><td>Look around</td></tr>
+                <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Shift down / up (manual gearbox)</td></tr>
+                <tr><td><kbd>H</kbd></td><td>Horn</td></tr>
+                <tr><td><kbd>R</kbd></td><td>Reset car onto the road</td></tr>
+                <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
+            </table>
+            <p class="hint">Gamepads work too: triggers for throttle/brake, left stick to steer, A handbrake, Y camera.</p>
+            <button class="primary close">Got it</button>
+        </div>
+    </div>
 
-    <script src="js/road.js"></script>
-    <script src="js/player.js"></script>
-    <script src="js/renderer.js"></script>
-    <script src="js/menu.js"></script>
-    <script src="js/main.js"></script>
+    <div id="hud">
+        <div class="hud-tl">
+            <div id="hud-time-label" class="hud-label">TIME LEFT</div>
+            <div id="hud-time" class="hud-big">0.0</div>
+            <div id="hud-dist" class="hud-small">0.00 km</div>
+        </div>
+        <div class="hud-tc">
+            <div id="hud-next" class="hud-small"></div>
+        </div>
+        <div class="hud-tr">
+            <div class="hud-label">SCORE</div>
+            <div id="hud-score" class="hud-big">0</div>
+            <div id="hud-combo" class="combo"></div>
+        </div>
+        <canvas id="minimap" width="200" height="200"></canvas>
+        <canvas id="gauge" width="260" height="260"></canvas>
+        <div id="popups"></div>
+        <div id="toast"></div>
+        <div id="countdown"></div>
+    </div>
+
+    <div id="pause" class="screen modal">
+        <div class="modal-box">
+            <h2>Paused</h2>
+            <button id="btn-resume" class="primary">Resume</button>
+            <button id="btn-restart" class="ghost">Restart</button>
+            <button id="btn-pause-settings" class="ghost">Settings</button>
+            <button id="btn-quit" class="ghost">Main Menu</button>
+        </div>
+    </div>
+
+    <div id="results" class="screen modal">
+        <div class="modal-box">
+            <h2 id="results-title">Time's up!</h2>
+            <div id="results-body" class="results"></div>
+            <button id="btn-retry" class="primary">Race Again</button>
+            <button id="btn-menu" class="ghost">Main Menu</button>
+        </div>
+    </div>
+
+    <div id="error" class="screen"></div>
+
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>
