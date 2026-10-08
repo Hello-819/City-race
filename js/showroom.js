@@ -14,7 +14,7 @@ export class Showroom {
         scene.environment = this.env;
         this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
 
-        const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 64), new THREE.MeshStandardMaterial({ color: 0x0d0f13, roughness: 0.35, metalness: 0.4 }));
+        const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 64), new THREE.MeshStandardMaterial({ color: 0x0d0f13, roughness: 0.55, metalness: 0.2 }));
         floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
         scene.add(floor);
         const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.5, 0.08, 64), new THREE.MeshStandardMaterial({ color: 0x1a1d22, roughness: 0.25, metalness: 0.8 }));
@@ -24,11 +24,13 @@ export class Showroom {
         ring.rotation.x = Math.PI / 2; ring.position.y = 0.085;
         scene.add(ring);
 
-        const key = new THREE.SpotLight(0xffffff, 300, 30, 0.6, 0.6, 1.5);
+        const key = new THREE.SpotLight(0xffffff, 220, 30, 0.6, 0.7, 1.5);
         key.position.set(4, 8, 5); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0005;
         scene.add(key);
-        const rim = new THREE.SpotLight(0xff6a50, 160, 30, 0.7, 0.8, 1.5);
-        rim.position.set(-6, 4, -6);
+        const rim = new THREE.SpotLight(0xff6a50, 60, 30, 0.35, 0.8, 1.5);
+        rim.position.set(-6, 3, -6);
+        rim.target.position.set(0, 0.8, 0);
+        scene.add(rim.target);
         scene.add(rim);
         scene.add(new THREE.HemisphereLight(0x8090a0, 0x101010, 0.6));
 
@@ -57,7 +59,7 @@ export class Showroom {
     update(dt) {
         this.time += dt;
         this.turntable.rotation.y += dt * 0.25;
-        const r = 8.2;
+        const r = 10.5;
         const a = this.angle + Math.sin(this.time * 0.1) * 0.15;
         this.camera.position.set(Math.cos(a) * r, 1.9 + Math.sin(this.time * 0.13) * 0.2, Math.sin(a) * r);
         this.camera.lookAt(0, 0.55, 0);

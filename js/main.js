@@ -12,6 +12,7 @@ import { CameraRig } from './cameraRig.js';
 import { Hud, formatTime } from './hud.js';
 import { GameRules } from './game.js';
 import { Showroom } from './showroom.js';
+import { Effects } from './effects.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('gameCanvas');
@@ -153,6 +154,7 @@ $('btn-menu').onclick = () => { show('results', false); toMenu(); };
 function disposeRace() {
     if (!race) return;
     race.traffic.dispose();
+    race.effects.dispose();
     race.player.dispose();
     race.world.dispose();
     race = null;
@@ -178,7 +180,8 @@ function startRace(seed) {
     const traffic = new Traffic(scene, world, kind, night, seed, parseFloat(settings.traffic));
     traffic.reset(player.s);
     const game = new GameRules(settings.mode, kind);
-    race = { world, traffic, player, game, seed, kind };
+    const effects = new Effects(scene, night);
+    race = { world, traffic, player, game, seed, kind, effects };
     camRig.reset();
     countdown = 3.5;
     state = 'countdown';
@@ -295,6 +298,7 @@ function updateRace(dt) {
         if (game.over) finish();
     }
 
+    race.effects.update(dt, player.rig, veh);
     env.update(player.rig.root.position, camera);
     camRig.update(dt, player.rig, veh, input);
     audio.update({
@@ -325,6 +329,8 @@ function frame(now) {
     if (fpsAcc > 1) { window.__fps = fpsFrames / fpsAcc; fpsAcc = 0; fpsFrames = 0; }
     input.endFrame();
 }
+
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 
 // ---------------------------------------------------------------------------
 async function boot() {
