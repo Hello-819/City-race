@@ -8,8 +8,8 @@ import { clamp, lerp, smoothstep } from '../core/rng.js';
 
 // Key frames indexed by sun elevation (degrees). Values are interpolated.
 const KEYS = [
-    { el: -14, sun: 0x8fa6ff, sunI: 0.35, sky: 0x2c3a66, ground: 0x2a2018, hemiI: 0.55, fog: 0x0b1222, exposure: 1.05 },
-    { el: -4, sun: 0x9a8cff, sunI: 0.3, sky: 0x55507a, ground: 0x3a2a24, hemiI: 0.6, fog: 0x3a3450, exposure: 0.9 },
+    { el: -14, sun: 0x9fb4ff, sunI: 0.65, sky: 0x3b4a7a, ground: 0x3a2c20, hemiI: 0.95, fog: 0x0d1424, exposure: 1.15 },
+    { el: -4, sun: 0xa89cff, sunI: 0.5, sky: 0x5a5682, ground: 0x3a2a24, hemiI: 0.8, fog: 0x3a3450, exposure: 0.95 },
     { el: 2, sun: 0xff9a55, sunI: 1.6, sky: 0x9fa8d8, ground: 0x5a4030, hemiI: 0.7, fog: 0xd59a76, exposure: 0.6 },
     { el: 12, sun: 0xffd6a8, sunI: 2.6, sky: 0xaec6f0, ground: 0x65584a, hemiI: 0.9, fog: 0xc9c4c0, exposure: 0.6 },
     { el: 35, sun: 0xfff3e0, sunI: 3.2, sky: 0xbfd6ff, ground: 0x6b6250, hemiI: 1.0, fog: 0xc3d3e2, exposure: 0.62 },
@@ -103,8 +103,13 @@ export class Environment {
         return p;
     }
 
-    // Sun elevation (deg) from the clock: rises 06:00, peaks 12:00, sets 18:00.
-    get sunElevation() { return 62 * Math.sin((this.hour - 6) / 12 * Math.PI); }
+    // Sun elevation (deg) from the clock: rises 06:00, peaks 13:00, sets 20:00.
+    get sunElevation() {
+        const h = this.hour;
+        if (h >= 6 && h <= 20) return 62 * Math.sin((h - 6) / 14 * Math.PI);
+        const n = (h < 6 ? h + 24 : h) - 20;          // 0..10 hours into the night
+        return -40 * Math.sin(n / 10 * Math.PI);
+    }
     get clockText() {
         const h = Math.floor(this.hour), m = Math.floor((this.hour - h) * 60);
         return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
@@ -114,7 +119,7 @@ export class Environment {
 
     _apply(forceEnv = false) {
         const el = this.sunElevation;
-        const az = THREE.MathUtils.degToRad(90 + (this.hour - 12) * 15);   // east -> south -> west
+        const az = THREE.MathUtils.degToRad(90 + (this.hour - 13) * 13);   // east -> south -> west
         this.sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - el), az);
         const k = sample(el);
         this.night = smoothstep(2, -8, el);

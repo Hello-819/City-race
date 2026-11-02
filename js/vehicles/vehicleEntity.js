@@ -1,0 +1,183 @@
+// A vehicle in the open world: tyre physics (vehicle.js) + terrain following +
+// collisions with buildings / props + water + visual rig (wheels, suspension,
+// lights). Used for the player's car, parked cars, traffic and police.
+import * as THREE from 'three';
+import { Vehicle, PHYS_DT } from '../vehicle.js';
+import { obbOverlap } from '../collide.js';
+import { CONFIG } from '../config.js';
+import { clamp, damp } from '../core/rng.js';
+
+const GRIP = { road: 1, pavement: 0.95, grass: 0.78, sand: 0.62, rock: 0.85, water: 0.25 };
+const _surf = {}, _cols = { boxes: [], circles: [] };
+let _uid = 1;
+
+export class VehicleEntity {
+    // world: { scene, map }, rig: car rig from assets / carModels, info: catalog entry
+    constructor(world, rig, info = {}) {
+        this.id = _uid++;
+        this.world = world;
+        this.rig = rig;
+        this.info = info;
+        this.veh = new Vehicle(rig.spec, rig);
+        this.veh.assists.auto = true;
+        rig.root.rotation.order = 'YXZ';
+        world.scene.add(rig.root);
+        this.maxHealth = info.health || 1000;
+        this.health = this.maxHealth;
+        this.alive = true;
+        this.driver = null;          // 'player' or an NPC driver object
+        this.acc = 0;
+        this.zSmooth = 0; this.pitch = 0; this.roll = 0; this.pitchV = 0; this.rollV = 0;
+        this.groundPitch = 0; this.groundRoll = 0;
+        this.impacts = [];
+        this.scrapes = [];
+        this.inWater = 0;
+        this.surface = 'road';
+        this.lightsOn = false;
+        this.horn = 0;
+        this.controls = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
+    }
+
+    get x() { return this.veh.x; }
+    get y() { return this.veh.y; }
+    get th() { return this.veh.th; }
+    get speed() { return this.veh.speed; }
+
+    place(x, y, th) {
+        const s = this.world.map.surfaceAt(x, y, _surf);
+        this.veh.reset(x, y, th, s.h);
+        this.zSmooth = s.h;
+        this.pitch = this.roll = this.pitchV = this.rollV = 0;
+        this.syncVisual(0);
+    }
+
+    // controls: {throttle, brake, steer, handbrake}. Returns impacts this frame.
+    update(dt, controls = this.controls) {
+        const v = this.veh, map = this.world.map;
+        this.impacts.length = 0;
+        this.scrapes.length = 0;
+        const surf = map.surfaceAt(v.x, v.y, _surf);
+        this.surface = surf.kind;
+        // deep water floods the engine
+        this.inWater = surf.water;
+        let ctl = controls;
+        if (!this.alive || surf.water > 0.9) ctl = DEAD;
+        const grip = GRIP[surf.kind] ?? 1;
+        // static colliders around the car, fetched once per frame
+        map.collidersNear(v.x, v.y, 8 + v.speed * dt * 2, _cols);
+        this.acc += dt;
+        let steps = 0;
+        while (this.acc >= PHYS_DT && steps < 10) {
+            this.acc -= PHYS_DT; steps++;
+            v.step(PHYS_DT, ctl, grip);
+            if (surf.water > 0.4) { const k = Math.exp(-PHYS_DT * (0.6 + surf.water)); v.vx *= k; v.vy *= k; v.r *= k; }
+            this._collide();
+        }
+        if (steps === 10) this.acc = 0;
+        // the map edge is open sea; a gentle current pushes back anyone who goes too far
+        const lim = map.half - 60;
+        if (Math.abs(v.x) > lim) v.vx -= Math.sign(v.x) * 6 * dt;
+        if (Math.abs(v.y) > lim) v.vy -= Math.sign(v.y) * 6 * dt;
+        this.syncVisual(dt);
+        return this.impacts;
+    }
+
+    _collide() {
+        const v = this.veh, P = v.P;
+        for (const b of _cols.boxes) {
+            const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+            const hit = obbOverlap(v.x, v.y, v.th, P.halfLength, P.halfWidth, cx, cy, 0, (b.x1 - b.x0) / 2, (b.y1 - b.y0) / 2);
+            if (!hit) continue;
+            const tangential = Math.abs(v.vx * -hit.ny + v.vy * hit.nx);
+            const s = v.collide(hit.nx, hit.ny, hit.depth, 0.2, 0.3);
+            if (s > 0.5) this.impacts.push({ speed: s, nx: hit.nx, ny: hit.ny, kind: 'wall' });
+            if (tangential > 4) this.scrapes.push({ x: v.x - hit.nx * P.halfWidth, y: v.y - hit.ny * P.halfWidth });
+        }
+        const cs = Math.cos(v.th), sn = Math.sin(v.th);
+        for (const c of _cols.circles) {
+            const dx = c.x - v.x, dy = c.y - v.y;
+            if (dx * dx + dy * dy > 36) continue;
+            const lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs;
+            const qx = clamp(lx, -P.halfLength, P.halfLength), qy = clamp(ly, -P.halfWidth, P.halfWidth);
+            const ex = lx - qx, ey = ly - qy;
+            const dist = Math.hypot(ex, ey);
+            let nx, ny, depth;
+            if (dist > 1e-4) {
+                if (dist >= c.r) continue;
+                nx = -(ex * cs - ey * sn) / dist; ny = -(ex * sn + ey * cs) / dist; depth = c.r - dist;
+            } else {
+                const px = P.halfLength - Math.abs(lx), py = P.halfWidth - Math.abs(ly);
+                if (px < py) { const sx = -Math.sign(lx); nx = sx * cs; ny = sx * sn; depth = px + c.r; }
+                else { const sy = -Math.sign(ly); nx = -sy * sn; ny = sy * cs; depth = py + c.r; }
+            }
+            const s = v.collide(nx, ny, depth, 0.15, 0.4);
+            if (s > 0.5) this.impacts.push({ speed: s * 1.2, nx, ny, kind: 'prop', prop: c });
+        }
+    }
+
+    // Wheels follow the terrain; body pitches / rolls on springs.
+    syncVisual(dt) {
+        const v = this.veh, rig = this.rig, map = this.world.map;
+        const c = Math.cos(v.th), s = Math.sin(v.th);
+        const L = v.P.L, W = rig.track || 1.6;
+        const hAt = (fx, fy) => map.surfaceAt(v.x + fx, v.y + fy, _surf).h;
+        const hF = hAt(c * L / 2, s * L / 2), hB = hAt(-c * L / 2, -s * L / 2);
+        const hL = hAt(-s * W / 2, c * W / 2), hR = hAt(s * W / 2, -c * W / 2);
+        let zT = (hF + hB + hL + hR) / 4;
+        if (this.inWater > 0.9) zT = Math.max(zT, CONFIG.map.seaLevel - 1.1);
+        this.zSmooth = dt > 0 ? damp(this.zSmooth, zT, 25, dt) : zT;
+        if (Math.abs(this.zSmooth - zT) > 1.5) this.zSmooth = zT;
+        v.z = this.zSmooth;
+        rig.root.position.set(v.x, this.zSmooth, -v.y);
+        const gp = Math.atan2(hF - hB, L), gr = Math.atan2(hL - hR, W);
+        this.groundPitch = dt > 0 ? damp(this.groundPitch, gp, 18, dt) : gp;
+        this.groundRoll = dt > 0 ? damp(this.groundRoll, gr, 18, dt) : gr;
+        if (dt > 0) {
+            const pitchT = clamp(-v.ax * 0.0065, -0.06, 0.06), rollT = clamp(v.ay * 0.0075, -0.07, 0.07);
+            this.pitchV += ((pitchT - this.pitch) * 90 - this.pitchV * 11) * dt;
+            this.rollV += ((rollT - this.roll) * 80 - this.rollV * 10) * dt;
+            this.pitch += this.pitchV * dt; this.roll += this.rollV * dt;
+        }
+        rig.root.rotation.set(this.groundPitch, v.th - Math.PI / 2, -this.groundRoll);
+        rig.body.rotation.set(-this.pitch, 0, -this.roll);
+        for (const w of rig.wheels) {
+            w.spin.rotation.x = -(w.front ? v.wheelSpin[0] : v.wheelSpin[1]);
+            if (w.front) w.steer.rotation.y = v.steer;
+        }
+        if (rig.steering) rig.steering.pivot.quaternion.setFromAxisAngle(rig.steering.axis, v.steer * 9);
+        const brake = v.brake > 0.05 || v.handbrake > 0;
+        const tail = (this.lightsOn ? 1.0 : 0.25) + (brake && this.driver ? 3.0 : 0);
+        for (const m of rig.mats.tail) m.emissiveIntensity = tail;
+    }
+
+    setLights(on) {
+        if (this.lightsOn === on) return;
+        this.lightsOn = on;
+        for (const m of this.rig.mats.head) m.emissiveIntensity = on ? 3 : 0;
+    }
+
+    // A real spotlight only for the car the player drives (costly).
+    setHeadlightSpot(on) {
+        if (on && !this.spot) {
+            const spot = new THREE.SpotLight(0xfff2dd, 420, 140, 0.55, 0.45, 1.2);
+            spot.position.set(0, 0.75, -this.rig.dims.z / 2 + 0.2);
+            spot.target.position.set(0, -0.6, -30);
+            this.rig.root.add(spot, spot.target);
+            this.spot = spot;
+        }
+        if (this.spot) this.spot.visible = on;
+    }
+
+    // point on the driver's side for getting in / out
+    doorPoint(side = 1) {
+        const v = this.veh, d = v.P.halfWidth + 0.9;
+        return { x: v.x - Math.sin(v.th) * d * side, y: v.y + Math.cos(v.th) * d * side };
+    }
+
+    dispose() {
+        this.world.scene.remove(this.rig.root);
+        if (this.spot) this.spot.dispose();
+    }
+}
+
+const DEAD = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
