@@ -29,6 +29,7 @@ import { Peds } from '../npc/peds.js';
 import { Police } from '../npc/police.js';
 import { Pickups } from './pickups.js';
 import { Jobs } from './jobs.js';
+import { Traffic } from '../vehicles/traffic.js';
 import { Interiors } from '../shops/interiors.js';
 import { ShopUI } from '../shops/shopUI.js';
 import { loadSave, writeSave, defaultSave } from './save.js';
@@ -63,7 +64,8 @@ export class Game {
         this.shopUI = new ShopUI(this);
         this.jobs = new Jobs(this);
         this.personalCar = null;
-        this.extraBlips = () => this.jobs.blips();
+        this.traffic = new Traffic(this);
+        this.extraBlips = () => [...this.jobs.blips(), ...this.traffic.blips()];
         this.doorPrompt = (b) => this.interiors.prompt(b);
         this.timeScale = 1;
         this.time = 0;
@@ -87,8 +89,9 @@ export class Game {
         this.player.armour = this.save.armour ?? 0;
         this.cam.yaw = this.player.yaw;
         // a couple of cars parked at the kerb next to the start
-        this.spawnParked('hatch', 6.2, -40, Math.PI / 2, '#2f5d8a');
-        this.spawnParked('sports', 6.2, -12, Math.PI / 2);
+        // (on the pavement edge so they don't block traffic)
+        this.spawnParked('hatch', 9.0, -40, Math.PI / 2, '#2f5d8a');
+        this.spawnParked('sports', 9.0, -16, Math.PI / 2);
         this.streamer.update(this.player.x, this.player.y, Infinity);
         this.hud.notify('Welcome to the island. <b>WASD</b> move, mouse look, <b>F</b> enter cars, <b>right mouse</b> aim, <b>left mouse</b> shoot, hold <b>Q</b> for the weapon wheel, <b>M</b> map.', 9);
     }
@@ -134,8 +137,8 @@ export class Game {
         const door = this.interiors.current ? this.interiors.current.door : this.map.doors('dealership')[0];
         const r = this.map.nearestRoad(door.x + door.nx * 8, door.y + door.ny * 8, 60);
         const e = r.edge;
-        const off = (e.lanes - 0.5) * e.laneW + 0.4;                       // kerbside lane
-        const p = this.map.edgePoint(e, r.s, off, {});
+        const off = e.half + 1.3;                                           // on the pavement edge
+        const p = this.map.edgePoint(e, Math.min(e.len - 12, r.s + 8), off * (Math.sign((door.x - e.c) * (e.axis === 'x' ? 1 : 0) + (e.c - door.y) * (e.axis === 'y' ? 1 : 0)) || 1), {});
         const v = this.spawnParked(c.model, p.x, p.y, Math.atan2(e.uy, e.ux), c.color);
         v.owned = true;
         this.personalCar = v;
@@ -150,6 +153,7 @@ export class Game {
     // ---------------------------------------------------------------- crime
     crime(type, x, y) {
         if (type === 'shooting' || type === 'assault' || type === 'pedKilled' || type === 'copKilled' || type === 'carJack') this.peds.alarm(x, y);
+        if (type === 'shooting' || type === 'vehicleDestroyed') this.traffic.alarm(x, y);
         this.police.crime(type, x, y);
     }
 
@@ -185,6 +189,7 @@ export class Game {
         }
         if (by === 'player') this.crime('vehicleDestroyed', x, y);
         this.peds.alarm(x, y, 60);
+        this.traffic.alarm(x, y);
     }
 
     // ----------------------------------------------------- death / arrest
@@ -294,7 +299,8 @@ export class Game {
             if (input.actHit('horn')) this.audio.horn();
             pv.controls = player.dead ? PARKED : { throttle: input.throttle, brake: input.brake, steer: input.steer, handbrake: input.handbrake };
         }
-        // --- NPC drivers ---
+        // --- traffic + NPC drivers ---
+        this.traffic.update(dt);
         for (const d of this.drivers) if (d.v.driver === d) d.update(dt, this.time);
         // --- vehicles ---
         const pos0 = player.position;
@@ -320,7 +326,7 @@ export class Game {
             if (a === pv || b === pv) {
                 this.audio.impact(hit.speed); this.cam.shake = Math.max(this.cam.shake, hit.speed / 30);
                 const other = a === pv ? b : a;
-                if (other.info.police && hit.speed > 5) this.crime('assault', other.x, other.y);
+                if (other.info.livery === 'police' && hit.speed > 5) this.crime('assault', other.x, other.y);
             }
         }
         if (pv && !pv.alive && !player.dead) { /* explosion damage handles it */ }
@@ -405,7 +411,7 @@ export class Game {
             const ped = this.peds.spawnFleeing(dp.x, dp.y, player.x, player.y);
             d.v.driver = null;
             this.drivers = this.drivers.filter(x => x !== d);
-            this.crime(v.info.police ? 'policeCarJack' : 'carJack', v.x, v.y);
+            this.crime(v.info.livery === 'police' ? 'policeCarJack' : 'carJack', v.x, v.y);
             void ped;
         }
         player.enter(v);
@@ -487,6 +493,7 @@ export class Game {
         this.fx.dispose();
         this.pickups.dispose();
         this.jobs.dispose();
+        this.traffic.dispose();
         this.peds.dispose();
         this.weapons.dispose();
         for (const v of this.vehicles) v.dispose();

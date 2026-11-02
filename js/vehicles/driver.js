@@ -217,7 +217,7 @@ export class Driver {
             along += Math.hypot(p.x - px, p.y - py);
             px = p.x; py = p.y;
             if (!p.end) continue;
-            if (p.stop && this.mode !== 'pursue') {
+            if (p.stop && this.mode !== 'pursue' && !(this.panic > 0)) {
                 const st = lightState(p.stop, p.axis, time);
                 const dStop = along;
                 // amber: stop if there is room, otherwise go through

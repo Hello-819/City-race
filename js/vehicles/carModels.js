@@ -30,7 +30,7 @@ const geoCache = new Map();
 const shared = {};
 function sharedMats() {
     if (shared.glass) return shared;
-    shared.glass = new THREE.MeshPhysicalMaterial({ color: 0x10161c, metalness: 0.3, roughness: 0.05, transparent: true, opacity: 0.55, envMapIntensity: 1.5 });
+    shared.glass = new THREE.MeshPhysicalMaterial({ color: 0x141c24, metalness: 0.4, roughness: 0.04, transparent: true, opacity: 0.9, envMapIntensity: 1.8 });
     shared.trim = new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.7, metalness: 0.2 });
     shared.chrome = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.15, metalness: 1 });
     shared.cargo = new THREE.MeshStandardMaterial({ color: 0xe6e6e2, roughness: 0.7 });
@@ -177,7 +177,7 @@ export function createVehicleRig(model, color = null) {
     const wheels = [];
     const wg = wheelGeo(d.r, d.r > 0.45 ? 0.36 : 0.24);
     for (const [key, zc, xs] of [['fl', -d.wb / 2, -1], ['fr', -d.wb / 2, 1], ['rl', d.wb / 2, -1], ['rr', d.wb / 2, 1]]) {
-        const center = new THREE.Vector3(xs * (d.W / 2 - 0.16), d.r, zc);
+        const center = new THREE.Vector3(xs * (d.W / 2 - 0.04)   /* tyres stick out of the body sides */, d.r, zc);
         const steer = new THREE.Group(); steer.position.copy(center);
         const spin = new THREE.Group(); steer.add(spin);
         const t = new THREE.Mesh(wg.tyre, S.tyre); t.castShadow = true;
@@ -193,7 +193,7 @@ export function createVehicleRig(model, color = null) {
     return {
         id: model, model, spec, root: holder, body, wheels, steering: null, eye: null,
         mats: { paint: [paint], tail: [tail], head: [head] }, siren: info.livery === 'police' ? { red, blue } : null,
-        dims: geo.dims.clone(), wheelbase: d.wb, track: d.W - 0.32, shadow, procedural: true,
+        dims: geo.dims.clone(), wheelbase: d.wb, track: d.W - 0.08, shadow, procedural: true,
         setColor(c) { paint.color.set(c); },
     };
 }

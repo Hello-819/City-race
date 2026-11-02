@@ -103,6 +103,24 @@ export const CONFIG = {
     },
 
     // ------------------------------------------------------------------------
+    // Traffic. Tune spawn rates HERE.
+    traffic: {
+        maxCars: 34,                   // NPC cars around the player (downtown)
+        density: { city: 1, suburb: 0.6, country: 0.3, highway: 0.5 },
+        spawnRadius: [110, 240],       // spawn between these distances
+        despawnRadius: 300,
+        minGap: 14,                    // don't spawn closer than this to another car
+        // relative weights of the normal civilian models
+        weights: { hatch: 14, compact: 10, saloon: 16, estate: 8, coupe: 6, suv: 10, pickup: 7, van: 7, minivan: 7, boxtruck: 4, taxi: 9, bus: 3, limo: 1 },
+        // rare cars: independent chance PER SPAWN (rolled before the normal pick)
+        rare: { supercar: 1 / 200, sports: 1 / 50, classic: 1 / 120, policeInterceptor: 1 / 150 },
+        rareGlow: true,                // glowing ring + floating label on rare cars
+        rareNotify: true,              // HUD message when one spawns nearby
+        honkChance: 0.5,
+        busSpeedFactor: 0.75,
+    },
+
+    // ------------------------------------------------------------------------
     npc: {
         pedCount: 26,                  // pooled pedestrians kept around the player
         spawnMin: 45, spawnMax: 150, despawn: 190,
