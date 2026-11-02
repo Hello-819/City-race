@@ -185,8 +185,8 @@ export class WeaponSystem {
     _updateModel() {
         const game = this.game, player = game.player;
         const id = this.current;
-        const show = id !== 'unarmed' && !player.vehicle && !player.dead;
-        if (!this.models[id] && id !== 'unarmed') { this.models[id] = gunModel(id); game.scene.add(this.models[id]); }
+        const show = id !== 'unarmed' && !player.vehicle && !player.dead && !game.interiors.inside;
+        if (!this.models[id] && id !== 'unarmed') { this.models[id] = gunModel(id); game.activeScene.add(this.models[id]); }
         for (const [k, m] of Object.entries(this.models)) m.visible = show && k === id;
         this.held = show ? this.models[id] : null;
         // arms

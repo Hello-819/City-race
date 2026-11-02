@@ -28,6 +28,9 @@ import { CombatFx } from '../weapons/combat.js';
 import { Peds } from '../npc/peds.js';
 import { Police } from '../npc/police.js';
 import { Pickups } from './pickups.js';
+import { Jobs } from './jobs.js';
+import { Interiors } from '../shops/interiors.js';
+import { ShopUI } from '../shops/shopUI.js';
 import { loadSave, writeSave, defaultSave } from './save.js';
 import { vehicleVsVehicle } from '../collide.js';
 
@@ -54,6 +57,14 @@ export class Game {
         this.police = new Police(this);
         this.weapons = new WeaponSystem(this, this.save.weapons);
         this.wheel = new WeaponWheel();
+        this.activeScene = scene;          // switches to a room scene inside shops
+        this.activeMap = this.map;
+        this.interiors = new Interiors(this);
+        this.shopUI = new ShopUI(this);
+        this.jobs = new Jobs(this);
+        this.personalCar = null;
+        this.extraBlips = () => this.jobs.blips();
+        this.doorPrompt = (b) => this.interiors.prompt(b);
         this.timeScale = 1;
         this.time = 0;
         this.mapOpen = false;
@@ -105,6 +116,35 @@ export class Game {
     npcHonk(v) {
         const p = this.player.position;
         if (Math.hypot(v.x - p.x, v.y - p.y) < 60) this.audio.horn();
+    }
+
+    // -------------------------------------------------------- purchases
+    setOutfit(o) {
+        const spec = o.kind === 'michelle' ? { kind: 'michelle', tint: o.tint } : { kind: 'man', top: o.top, bottom: o.bottom };
+        this.player.setOutfit(spec);
+        this.save.outfitId = o.id;
+        this.save.outfit = this.player.outfit;
+    }
+
+    // Park an owned vehicle on the road outside the nearest dealership.
+    deliverOwnedCar(i) {
+        const c = this.save.ownedCars[i];
+        if (!c) return;
+        this.storePersonalCar();
+        const door = this.interiors.current ? this.interiors.current.door : this.map.doors('dealership')[0];
+        const r = this.map.nearestRoad(door.x + door.nx * 8, door.y + door.ny * 8, 60);
+        const e = r.edge;
+        const off = (e.lanes - 0.5) * e.laneW + 0.4;                       // kerbside lane
+        const p = this.map.edgePoint(e, r.s, off, {});
+        const v = this.spawnParked(c.model, p.x, p.y, Math.atan2(e.uy, e.ux), c.color);
+        v.owned = true;
+        this.personalCar = v;
+    }
+
+    storePersonalCar() {
+        const v = this.personalCar;
+        if (v && this.vehicles.includes(v) && this.player.vehicle !== v) this.removeVehicle(v);
+        this.personalCar = null;
     }
 
     // ---------------------------------------------------------------- crime
@@ -224,6 +264,13 @@ export class Game {
             this.hud.drawFullMap(this._hudState());
             return;
         }
+        // --- inside a shop: only the room, the player and the shop UI run ---
+        if (this.interiors.inside) { this._updateInterior(rawDt); return; }
+        // --- doors ---
+        if (input.actHit('interact') && !player.dead && !player.vehicle) {
+            const door = this.interiors.nearDoor();
+            if (door) this.interiors.enter(door);
+        }
         // --- weapon wheel (hold) ---
         const canWheel = !player.vehicle && !player.dead && !this.wantsCursor;
         if (input.actHit('weaponWheel') && canWheel) this.wheel.show(this.weapons);
@@ -289,6 +336,7 @@ export class Game {
         this.peds.update(dt);
         this.police.update(dt);
         this.pickups.update(dt);
+        this.jobs.update(dt);
         if (this.deathT > 0) this._updateDeath(rawDt);
 
         // --- camera ---
@@ -323,6 +371,21 @@ export class Game {
         this.hud.update(rawDt, this._hudState(cross));
     }
 
+    _updateInterior(rawDt) {
+        const input = this.input, player = this.player;
+        if (this.shopUI.open && input.hit('Escape')) this.shopUI.close();
+        if (!this.shopUI.open) this.cam.look(input);
+        player.update(rawDt, this.shopUI.open ? FROZEN_INPUT : input, this.cam.yaw, NO_VEHICLES);
+        this.weapons.update(rawDt, input, false);
+        this.interiors.update();
+        this.cam.updateFoot(rawDt, player, this.activeMap, false);
+        this.env.update(rawDt, player.person.root.position, this.camera);
+        this.audio.update(IDLE_AUDIO);
+        this.audio.siren(0);
+        if (this.shopUI.open) document.getElementById('shop-money').textContent = '$' + Math.round(this.money).toLocaleString();
+        this.hud.update(rawDt, this._hudState({ style: null }));
+    }
+
     _enterExit() {
         const player = this.player;
         if (player.vehicle) {
@@ -353,6 +416,8 @@ export class Game {
         const p = this.player;
         if (p.vehicle || p.dead) { this.hud.prompt(''); return; }
         const v = p.nearestVehicle(this.vehicles);
+        const jp = this.jobs.prompt();
+        if (jp) { this.hud.prompt(jp); return; }
         if (v) { this.hud.prompt(`<kbd>F</kbd> ${v.driver && v.driver !== 'player' ? 'Steal' : 'Enter'} ${v.info.name || 'vehicle'}`); return; }
         for (const b of this.specialBlips) {
             if (Math.abs(b.x - p.x) < 2.5 && Math.abs(b.y - p.y) < 2.5) { this.hud.prompt(this.doorPrompt ? this.doorPrompt(b) : SPECIAL_NAMES[b.type]); return; }
@@ -421,6 +486,7 @@ export class Game {
         this.effects.dispose();
         this.fx.dispose();
         this.pickups.dispose();
+        this.jobs.dispose();
         this.peds.dispose();
         this.weapons.dispose();
         for (const v of this.vehicles) v.dispose();
@@ -428,6 +494,8 @@ export class Game {
     }
 }
 
+const FROZEN_INPUT = { moveX: 0, moveY: 0, act: () => false, actHit: () => false };
+const NO_VEHICLES = [];
 const PARKED = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
 const IDLE_AUDIO = { active: false, rpm: 1000, cylinders: 8, throttle: 0, redline: 8000, skid: 0, speed: 0 };
 export { THREE };

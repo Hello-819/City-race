@@ -35,6 +35,8 @@ export class Hud {
     // centre-bottom one-line hint ("Press F to enter")
     prompt(msg) { this.html('prompt', msg || ''); $('prompt').classList.toggle('show', !!msg); }
 
+    mission(html) { this.html('mission', html || ''); document.getElementById('mission').classList.toggle('show', !!html); }
+
     zone(name) {
         if (name === this.lastZone) return;
         this.lastZone = name;

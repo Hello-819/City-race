@@ -198,9 +198,9 @@ function frame(now) {
             saveTimer += dt;
             if (saveTimer > 20) { saveTimer = 0; game.snapshot(); }
         }
-        renderer.render(scene, camera);
+        renderer.render(game.activeScene, camera);
     } else if ((state === 'menu' || state === 'paused') && game) {
-        renderer.render(scene, camera);
+        renderer.render(game.activeScene, camera);
     }
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc > 1) { window.__fps = fpsFrames / fpsAcc; fpsAcc = 0; fpsFrames = 0; }
@@ -245,6 +245,6 @@ function press(code) { input.keys.add(code); input.pressed.add(code); }
 function release(code) { input.keys.delete(code); input.released.add(code); }
 window.__game = {
     get game() { return game; }, get state() { return state; }, env, input, renderer, scene, camera, settings,
-    startGame, simulate, press, release, render: () => renderer.render(scene, camera),
+    startGame, simulate, press, release, render: () => renderer.render(game ? game.activeScene : scene, camera),
 };
 boot();

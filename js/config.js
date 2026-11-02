@@ -133,6 +133,54 @@ export const CONFIG = {
     },
 
     // ------------------------------------------------------------------------
+    // Shops, prices and ways to earn money.
+    shops: {
+        // how many of each building exist on the map
+        counts: { hospital: 4, police: 3, gun: 5, clothes: 6, dealership: 3, convenience: 10, cafe: 8 },
+        // gun shop: weapon price, ammo pack size and pack price
+        guns: {
+            pistol: { price: 400, ammoPack: 24, ammoPrice: 40 },
+            smg: { price: 1500, ammoPack: 60, ammoPrice: 90 },
+            shotgun: { price: 2200, ammoPack: 16, ammoPrice: 80 },
+            rifle: { price: 4500, ammoPack: 60, ammoPrice: 150 },
+            sniper: { price: 9000, ammoPack: 10, ammoPrice: 200 },
+        },
+        // clothing store outfits (kind: character model; top / bottom colours)
+        outfits: [
+            { id: 'default', name: 'Street Casual', price: 0, kind: 'man', top: '#2b3a55', bottom: '#1f1f22' },
+            { id: 'red', name: 'Red Bomber', price: 250, kind: 'man', top: '#9a1c1c', bottom: '#202020' },
+            { id: 'olive', name: 'Olive Field', price: 300, kind: 'man', top: '#4b5a2a', bottom: '#3a3226' },
+            { id: 'white', name: 'Summer Whites', price: 400, kind: 'man', top: '#e8e6df', bottom: '#cfc8b4' },
+            { id: 'violet', name: 'Night Out', price: 600, kind: 'man', top: '#4a2a6b', bottom: '#141414' },
+            { id: 'gold', name: 'High Roller', price: 2500, kind: 'man', top: '#c9a227', bottom: '#111111' },
+            { id: 'michelle', name: 'Michelle (classic)', price: 800, kind: 'michelle', tint: '#ffffff' },
+            { id: 'michelle-blue', name: 'Michelle (denim)', price: 900, kind: 'michelle', tint: '#8fb0ff' },
+        ],
+        convenience: [
+            { id: 'snack', name: 'Snack bar', desc: '+25 health', price: 10, health: 25 },
+            { id: 'medkit', name: 'First-aid kit', desc: 'Full health', price: 90, health: 100 },
+            { id: 'vest', name: 'Light armour', desc: '+50 armour', price: 150, armour: 50 },
+            { id: 'heavy', name: 'Heavy armour', desc: 'Full armour', price: 280, armour: 100 },
+        ],
+        cafe: [
+            { id: 'coffee', name: 'Coffee', desc: '+15 health', price: 5, health: 15 },
+            { id: 'sandwich', name: 'Club sandwich', desc: '+40 health', price: 15, health: 40 },
+            { id: 'meal', name: 'Full breakfast', desc: 'Full health', price: 40, health: 100 },
+        ],
+        // vehicles the dealership sells (prices come from CONFIG.vehicles)
+        dealership: ['compact', 'hatch', 'saloon', 'estate', 'coupe', 'minivan', 'suv', 'pickup', 'van', 'limo', 'classic', 'sports', 'supercar'],
+        garageSlots: 8,
+    },
+
+    economy: {
+        packages: 60,                 // hidden packages scattered over the island
+        packageReward: 750,
+        packageRadarRange: 120,       // they show up on the radar when this close
+        jobPay: { base: 150, perMetre: 0.3, timeBonus: 2 },   // courier jobs ($, $/m, $/s left)
+        jobDistance: [500, 1800],
+    },
+
+    // ------------------------------------------------------------------------
     player: {
         jogSpeed: 3.4,
         sprintSpeed: 6.6,
