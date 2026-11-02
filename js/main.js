@@ -31,11 +31,12 @@ const store = {
     set(k, v) { try { localStorage.setItem('cityrace.' + k, JSON.stringify(v)); } catch { /* ignore */ } },
 };
 
+// Player options only. There are no selectable game modes: one persistent world.
 const settings = Object.assign({
-    car: 'ferrari', color: CARS.ferrari.defaultColor, kind: 'city', time: 'day', mode: 'timeattack', traffic: '1',
-    quality: 'medium', units: 'kmh', gearbox: 'auto', assists: 'on', volume: 0.7,
-    rivals: '0', police: 'on', ghost: 'on', peds: 'on', track: 'random', mirror: 'on', speedfx: 'on',
+    quality: 'medium', units: 'kmh', gearbox: 'auto', assists: 'on', volume: 0.7, mirror: 'on', speedfx: 'on',
 }, store.get('settings', {}));
+// fixed world setup (previously menu "modes")
+const WORLD = { car: 'ferrari', color: CARS.ferrari.defaultColor, kind: 'city', mode: 'free', traffic: 1, police: true, peds: true };
 
 let renderer;
 try {
@@ -103,30 +104,6 @@ window.addEventListener('resize', resize);
 function show(id, on = true) { $(id).classList.toggle('active', on); }
 
 function buildMenu() {
-    const list = $('car-list');
-    list.innerHTML = '';
-    for (const car of Object.values(CARS)) {
-        const b = document.createElement('button');
-        b.className = 'card' + (settings.car === car.id ? ' on' : '');
-        b.textContent = car.name;
-        b.onclick = () => { settings.car = car.id; settings.color = car.defaultColor; saveSettings(); buildMenu(); };
-        list.appendChild(b);
-    }
-    const car = CARS[settings.car];
-    $('car-blurb').textContent = car.blurb;
-    const P = car.physics;
-    const hp = Math.round(Math.max(...P.torque.map(([r, t]) => r * t)) / 7121);
-    $('car-stats').innerHTML = [['Power', car.stats.power, hp + ' hp'], ['Top speed', car.stats.speed], ['Handling', car.stats.handling]]
-        .map(([n, v, extra]) => `<span>${n}${extra ? ' · ' + extra : ''}</span><div class="meter"><i style="width:${v * 100}%"></i></div>`).join('');
-    const sw = $('paints');
-    sw.innerHTML = '';
-    for (const c of PAINTS) {
-        const d = document.createElement('div');
-        d.className = 'swatch' + (settings.color === c ? ' on' : '');
-        d.style.background = c;
-        d.onclick = () => { settings.color = c; saveSettings(); buildMenu(); };
-        sw.appendChild(d);
-    }
     document.querySelectorAll('.seg').forEach((seg) => {
         const key = seg.dataset.key;
         seg.querySelectorAll('button').forEach((b) => {
@@ -134,10 +111,6 @@ function buildMenu() {
             b.onclick = () => { settings[key] = b.dataset.value; saveSettings(); buildMenu(); onSettingChanged(key); };
         });
     });
-    const best = store.get('best', {});
-    const k = settings.kind + '-' + settings.mode;
-    $('best').textContent = best[k] ? `Best ${settings.kind === 'city' ? 'City' : 'Mountain'} ${settings.mode === 'free' ? 'free roam' : 'time attack'} score: ${best[k].toLocaleString()}` : '';
-    if (showroom) showroom.setCar(settings.car, settings.color);
 }
 
 function saveSettings() { store.set('settings', settings); }
@@ -158,12 +131,10 @@ $('volume').value = settings.volume;
 $('volume').oninput = (e) => { settings.volume = +e.target.value; audio.setVolume(settings.volume); saveSettings(); };
 $('btn-settings').onclick = () => show('settings');
 $('btn-controls').onclick = () => show('controls');
+$('btn-quit-game').onclick = () => { show('menu', false); show('quit-screen'); try { window.close(); } catch { /* browsers may refuse */ } };
+$('btn-unquit').onclick = () => { show('quit-screen', false); show('menu'); };
 document.querySelectorAll('.modal .close').forEach((b) => b.onclick = () => b.closest('.modal').classList.remove('active'));
-function trackSeed() {
-    if (settings.track === 'daily') { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
-    return Math.floor(Math.random() * 1e9);
-}
-$('btn-start').onclick = () => startRace(trackSeed());
+$('btn-start').onclick = () => startRace(20240611);
 $('btn-pause-replay').onclick = () => { show('pause', false); startReplay('paused'); };
 $('btn-results-replay').onclick = () => { show('results', false); startReplay('results'); };
 $('rp-exit').onclick = () => exitReplay();
@@ -173,7 +144,6 @@ $('rp-speed').onclick = () => { const s = [0.25, 0.5, 1, 2]; replay.speed = s[(s
 $('rp-cam').onclick = () => { replay.nextCam(); $('rp-cam').textContent = 'Camera: ' + replay.camName; };
 document.querySelector('.replay-bar').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); replay.seek((e.clientX - r.left) / r.width); };
 $('btn-resume').onclick = () => resume();
-$('btn-restart').onclick = () => { show('pause', false); startRace(race.seed); };
 $('btn-pause-settings').onclick = () => show('settings');
 $('btn-quit').onclick = () => toMenu();
 $('btn-retry').onclick = () => { show('results', false); startRace(race.seed); };
@@ -200,30 +170,29 @@ function startRace(seed) {
     disposeRace();
     show('menu', false);
     hud.units = settings.units;
-    const kind = settings.kind;
-    const night = settings.time === 'night';
-    const mode = settings.mode;
-    env.apply(settings.time, kind);
+    const kind = WORLD.kind;
+    const night = false;
+    const mode = WORLD.mode;
     const game = new GameRules(mode, kind);
     const world = new World(scene, kind, night, seed, { finishS: mode === 'sprint' ? game.finishS : null });
-    const rig = createCar(settings.car, { color: settings.color });
+    const rig = createCar(WORLD.car, { color: WORLD.color });
     const player = new Car(rig, scene, { night, player: true });
     applyAssists(player.veh);
-    const nRivals = parseInt(settings.rivals, 10) || 0;
+    const nRivals = 0;
     const slots = Racers.grid(kind, nRivals);
     player.place(world.road, nRivals ? slots[0].s : 12, nRivals ? slots[0].d : (kind === 'city' ? -5.25 : -1.8));
     // build everything around the start before the first frame
     for (let i = 0; i < 40; i++) world.update(player.s, rig.root.position, player.veh, 50);
-    const traffic = new Traffic(scene, world, kind, night, seed, parseFloat(settings.traffic));
+    const traffic = new Traffic(scene, world, kind, night, seed, WORLD.traffic);
     traffic.reset(player.s + (nRivals ? 40 : 0));
-    const peds = new Pedestrians(scene, world, seed, settings.peds === 'on' && kind === 'city' ? 34 : 0);
+    const peds = new Pedestrians(scene, world, seed, WORLD.peds && kind === 'city' ? 34 : 0);
     peds.reset(player.s);
-    const police = settings.police === 'on' ? new Police(scene, world, night, seed) : null;
+    const police = WORLD.police ? new Police(scene, world, night, seed) : null;
     const racers = nRivals ? new Racers(scene, world, nRivals, night, seed) : null;
     if (racers) racers.place(slots);
     const effects = new Effects(scene, night);
     const ghostKey = ghostStore.key(kind, seed, mode);
-    const ghostData = settings.ghost === 'on' ? ghostStore.load(ghostKey) : null;
+    const ghostData = null;
     const ghostCar = ghostData ? new GhostCar(scene, ghostData) : null;
     const recorder = new Recorder([carChannel(player), trafficChannel(traffic), peds.enabled ? peds : null, police, racers]);
     mirror.attach(rig);
@@ -473,7 +442,7 @@ function updateRace(dt) {
     }
     if (race.ghostCar) race.ghostCar.update(simTime);
 
-    env.update(player.rig.root.position, camera);
+    env.update(dt, player.rig.root.position, camera);
     camRig.update(dt, player.rig, veh, input);
     audio.update({
         active: true, rpm: veh.rpm, cylinders: veh.P.cylinders, throttle: veh.throttle, redline: veh.P.redline,
@@ -481,6 +450,10 @@ function updateRace(dt) {
     });
     const position = racers ? { place: racers.position(player.s, game.finished, game.finishTime), total: racers.units.length + 1 } : null;
     hud.update({ veh, game, road: world.road, player, traffic, police, racers, position });
+    // the one continuous day/night clock (hold T to fast-forward time for testing)
+    if (input.down('KeyT')) env.update(dt * 60, player.rig.root.position, camera);
+    $('hud-time-label').textContent = 'CLOCK';
+    $('hud-time').textContent = env.clockText;
 }
 
 function renderRace(dt) {
@@ -516,7 +489,7 @@ function frame(now) {
             replay.update(dt, race.effects);
             $('replay-progress').style.width = (replay.progress * 100).toFixed(1) + '%';
             $('rp-play').textContent = replay.playing ? '⏸' : '▶';
-            env.update(race.player.rig.root.position, camera);
+            env.update(0, race.player.rig.root.position, camera);
             renderRace(dt);
         }
     } else if (state === 'paused' || state === 'results') {
@@ -579,5 +552,5 @@ function simulate(seconds, keys = [], autopilot = false) {
     }
     for (const k of keys) input.keys.delete(k);
 }
-window.__game = { get race() { return race; }, get state() { return state; }, settings, startRace, camRig, input, renderer, scene, camera, simulate, startReplay, get replay() { return replay; }, renderRace: (dt) => renderRace(dt) };
+window.__game = { env, get race() { return race; }, get state() { return state; }, settings, startRace, camRig, input, renderer, scene, camera, simulate, startReplay, get replay() { return replay; }, renderRace: (dt) => renderRace(dt) };
 boot();

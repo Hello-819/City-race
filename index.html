@@ -25,95 +25,26 @@
     </div>
 
     <div id="menu" class="screen">
-        <div class="menu-panel">
+        <div class="menu-panel title-menu">
             <div class="brand small">CITY<span>RACE</span></div>
-            <div class="subtitle">Endless procedural streets &amp; mountain passes</div>
+            <div class="subtitle">One city. One endless day and night.</div>
+            <button id="btn-start" class="primary">Start</button>
+            <button id="btn-settings" class="ghost">Options</button>
+            <button id="btn-quit-game" class="ghost">Quit</button>
+        </div>
+    </div>
 
-            <div class="section">
-                <div class="label">Car</div>
-                <div id="car-list" class="cards"></div>
-                <div id="car-blurb" class="blurb"></div>
-                <div id="car-stats" class="stats"></div>
-            </div>
-
-            <div class="section">
-                <div class="label">Paint</div>
-                <div id="paints" class="swatches"></div>
-            </div>
-
-            <div class="section">
-                <div class="label">Location</div>
-                <div class="seg" data-key="kind">
-                    <button data-value="city" class="on">City</button>
-                    <button data-value="mountain">Mountain Pass</button>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">Time of day</div>
-                <div class="seg" data-key="time">
-                    <button data-value="day" class="on">Day</button>
-                    <button data-value="sunset">Sunset</button>
-                    <button data-value="night">Night</button>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">Mode</div>
-                <div class="seg" data-key="mode">
-                    <button data-value="timeattack" class="on">Time Attack</button>
-                    <button data-value="sprint">Sprint Race</button>
-                    <button data-value="free">Free Roam</button>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">AI rivals</div>
-                <div class="seg" data-key="rivals">
-                    <button data-value="0" class="on">Off</button>
-                    <button data-value="1">1</button>
-                    <button data-value="3">3</button>
-                    <button data-value="5">5</button>
-                </div>
-            </div>
-            <div class="section two">
-                <div>
-                    <div class="label">Police</div>
-                    <div class="seg" data-key="police"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
-                </div>
-                <div>
-                    <div class="label">Ghost</div>
-                    <div class="seg" data-key="ghost"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
-                </div>
-            </div>
-            <div class="section two">
-                <div>
-                    <div class="label">Pedestrians</div>
-                    <div class="seg" data-key="peds"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
-                </div>
-                <div>
-                    <div class="label">Track</div>
-                    <div class="seg" data-key="track"><button data-value="random" class="on">Random</button><button data-value="daily">Daily</button></div>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">Traffic</div>
-                <div class="seg" data-key="traffic">
-                    <button data-value="0.5">Light</button>
-                    <button data-value="1" class="on">Normal</button>
-                    <button data-value="1.6">Heavy</button>
-                </div>
-            </div>
-
-            <button id="btn-start" class="primary">Start Race</button>
-            <div class="row-buttons">
-                <button id="btn-settings" class="ghost">Settings</button>
-                <button id="btn-controls" class="ghost">Controls</button>
-            </div>
-            <div id="best" class="best"></div>
+    <div id="quit-screen" class="screen">
+        <div class="menu-panel title-menu">
+            <div class="brand small">THANKS FOR<span>PLAYING</span></div>
+            <div class="subtitle">You can close this tab now.</div>
+            <button id="btn-unquit" class="ghost">Back to title</button>
         </div>
     </div>
 
     <div id="settings" class="screen modal">
         <div class="modal-box">
-            <h2>Settings</h2>
+            <h2>Options</h2>
             <div class="setting"><span>Graphics quality</span>
                 <div class="seg" data-key="quality">
                     <button data-value="low">Low</button>
@@ -152,6 +83,7 @@
                 </div>
             </div>
             <div class="setting"><span>Volume</span><input id="volume" type="range" min="0" max="1" step="0.05" value="0.7"></div>
+            <button id="btn-controls" class="ghost">Controls</button>
             <button class="primary close">Done</button>
         </div>
     </div>
@@ -238,8 +170,7 @@
             <h2>Paused</h2>
             <button id="btn-resume" class="primary">Resume</button>
             <button id="btn-pause-replay" class="ghost">Watch Replay</button>
-            <button id="btn-restart" class="ghost">Restart</button>
-            <button id="btn-pause-settings" class="ghost">Settings</button>
+                        <button id="btn-pause-settings" class="ghost">Options</button>
             <button id="btn-quit" class="ghost">Main Menu</button>
         </div>
     </div>

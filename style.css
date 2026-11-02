@@ -133,3 +133,7 @@ body.touch #minimap { display: none; }
 #replay-progress { height: 100%; width: 0; background: #ff3b30; border-radius: 3px; }
 .replay-buttons { display: flex; gap: 8px; justify-content: center; }
 .replay-buttons button { width: auto; margin: 0; padding: 8px 14px; }
+
+/* simple title menu: Start / Options / Quit */
+.title-menu { display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.title-menu button { font-size: 1.1rem; padding: 14px 18px; }
