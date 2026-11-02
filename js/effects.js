@@ -71,8 +71,8 @@ export class Effects {
     constructor(scene, night) {
         this.scene = scene;
         this.night = night;
-        this.smoke = new ParticleSystem(scene, 420);
-        this.sparks = new ParticleSystem(scene, 260, { additive: true, scale: 300 });
+        this.smoke = new ParticleSystem(scene, 900);
+        this.sparks = new ParticleSystem(scene, 600, { additive: true, scale: 300 });
 
         // skid marks: ring buffer of quads
         const mg = new THREE.BufferGeometry();
@@ -130,6 +130,34 @@ export class Effects {
 
     scrape(x, y, z, vx, vz) {
         if (Math.random() < 0.5) this.impactSparks(x, y, z, vx, vz, 0);
+    }
+
+
+    blood(x, y, z) {
+        for (let i = 0; i < 10; i++) this.smoke.emit({ x, y, z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3,
+            life: 0.4 + Math.random() * 0.3, size: 0.25, grow: 1.2, alpha: 0.9, r: 0.45, g: 0.02, b: 0.02, gravity: 6, fadeIn: 40 });
+    }
+
+    dust(x, y, z) {
+        for (let i = 0; i < 6; i++) this.smoke.emit({ x, y, z, vx: (Math.random() - 0.5) * 2, vy: Math.random() * 1.5, vz: (Math.random() - 0.5) * 2,
+            life: 0.5 + Math.random() * 0.4, size: 0.3, grow: 2, alpha: 0.5, r: 0.6, g: 0.56, b: 0.5, fadeIn: 30 });
+        this.impactSparks(x, y, z, 0, 0, 0);
+    }
+
+    // fireball + sparks + smoke column (vehicle explosions)
+    explosion(x, y, z) {
+        for (let i = 0; i < 60; i++) this.sparks.emit({ x, y: y + 0.5, z, vx: (Math.random() - 0.5) * 18, vy: 2 + Math.random() * 12, vz: (Math.random() - 0.5) * 18,
+            life: 0.5 + Math.random() * 0.8, size: 1.5 + Math.random() * 2, grow: 1.5, alpha: 1, r: 1, g: 0.75, b: 0.3, r2: 0.8, g2: 0.15, b2: 0.02, gravity: 4, drag: 0.94, fadeIn: 30 });
+        for (let i = 0; i < 40; i++) this.smoke.emit({ x: x + (Math.random() - 0.5) * 3, y: y + 1, z: z + (Math.random() - 0.5) * 3, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 5, vz: (Math.random() - 0.5) * 4,
+            life: 2 + Math.random() * 2, size: 3, grow: 3, alpha: 0.6, r: 0.12, g: 0.11, b: 0.1, fadeIn: 10 });
+    }
+
+    // a burning wreck: call every frame
+    fire(x, y, z, dt, amount = 1) {
+        if (Math.random() < dt * 40 * amount) this.sparks.emit({ x: x + (Math.random() - 0.5) * 1.2, y, z: z + (Math.random() - 0.5) * 1.2, vx: 0, vy: 2 + Math.random() * 2, vz: 0,
+            life: 0.5 + Math.random() * 0.4, size: 0.9, grow: 0.5, alpha: 0.9, r: 1, g: 0.6, b: 0.15, r2: 0.6, g2: 0.1, b2: 0, drag: 0.98, fadeIn: 20 });
+        if (Math.random() < dt * 12 * amount) this.smoke.emit({ x, y: y + 1, z, vx: (Math.random() - 0.5), vy: 2 + Math.random() * 2, vz: (Math.random() - 0.5),
+            life: 3, size: 1.6, grow: 3, alpha: 0.45, r: 0.1, g: 0.1, b: 0.1, fadeIn: 8 });
     }
 
     update(dt) {

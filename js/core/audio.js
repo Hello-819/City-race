@@ -87,6 +87,30 @@ export class AudioEngine {
         src.connect(f); f.connect(g); g.connect(this.master); src.start(t); src.stop(t + 2.5);
     }
 
+
+    // Gunshot: a filtered noise crack + low thump, shaped per weapon.
+    // dist (m) attenuates shots fired by others.
+    gunshot(kind = 'pistol', dist = 0) {
+        if (!this.ctx || !this.enabled) return;
+        const ctx = this.ctx, t = ctx.currentTime;
+        const S = { pistol: [2600, 0.18, 0.55, 140], smg: [3200, 0.1, 0.4, 160], shotgun: [1400, 0.35, 0.9, 90], rifle: [2400, 0.16, 0.65, 120], sniper: [1700, 0.5, 1.0, 70], npc: [2600, 0.18, 0.5, 140] }[kind] || [2600, 0.18, 0.55, 140];
+        const vol = S[2] / (1 + dist / 25);
+        if (vol < 0.01) return;
+        const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(S[0] / (1 + dist / 80), t); f.frequency.exponentialRampToValueAtTime(200, t + S[1]);
+        const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + S[1] + 0.05);
+        src.connect(f); f.connect(g); g.connect(this.master); src.start(t, Math.random()); src.stop(t + S[1] + 0.1);
+        const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(S[3], t); o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+        const og = ctx.createGain(); og.gain.setValueAtTime(vol * 0.9, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.2);
+    }
+
+    click() { this.blip(1800, 0.03, 'square', 0.08); }
+    reload() { this.blip(700, 0.05, 'square', 0.08); setTimeout(() => this.blip(1100, 0.05, 'square', 0.08), 180); }
+    hitmark(kill = false) { this.blip(kill ? 520 : 1500, kill ? 0.18 : 0.05, 'triangle', 0.12); }
+    pickup() { this.blip(880, 0.08, 'sine', 0.15); setTimeout(() => this.blip(1320, 0.12, 'sine', 0.15), 90); }
+    cash() { this.blip(1568, 0.06, 'square', 0.1); setTimeout(() => this.blip(2093, 0.12, 'square', 0.1), 70); }
+
     setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
 
     update(state) {

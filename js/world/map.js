@@ -303,7 +303,8 @@ export class GameMap {
         const cands = this.blocks.slice();
         for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(rng.float() * (i + 1)); [cands[i], cands[j]] = [cands[j], cands[i]]; }
         // spread the city ones first so every type exists near the start
-        cands.sort((a, b) => (a.zone === ZONE.CITY ? 0 : 1) - (b.zone === ZONE.CITY ? 0 : 1) + (rng.float() - 0.5) * 1.2);
+        const key = new Map(cands.map(b => [b, (b.zone === ZONE.CITY ? 0 : 1) + rng.float() * 1.2]));
+        cands.sort((a, b) => key.get(a) - key.get(b));
         this.specials = [];
         const order = Object.entries(counts).flatMap(([type, n]) => Array.from({ length: n }, (_, i) => ({ type, i })));
         // interleave types so they are spread evenly

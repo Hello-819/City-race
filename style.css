@@ -148,3 +148,24 @@ button.danger { color: #ff8a80; border-color: #5a2a2a; }
     .menu-panel { background: rgba(6,8,12,0.9); padding: 18px 16px; }
     .hud-bl { width: 140px; } #radar { width: 140px; height: 140px; }
 }
+
+/* ------------------------------------------------------- weapon wheel */
+#wheel { position: fixed; left: 50%; top: 50%; width: min(520px, 90vmin); height: min(520px, 90vmin); transform: translate(-50%, -50%);
+    border-radius: 50%; background: radial-gradient(circle, rgba(0,0,0,0.25) 0 22%, rgba(0,0,0,0.62) 23% 70%, rgba(0,0,0,0) 71%);
+    display: none; z-index: 25; pointer-events: none; }
+#wheel.active { display: block; animation: wheelin .12s ease-out; }
+@keyframes wheelin { from { transform: translate(-50%, -50%) scale(.85); opacity: 0; } }
+#wheel .slot { position: absolute; width: 110px; height: 84px; transform: translate(-50%, -50%); border-radius: 12px; text-align: center;
+    padding-top: 10px; border: 2px solid transparent; transition: all .08s; color: #ddd; }
+#wheel .slot .ic { font-size: 1.6rem; font-weight: 900; }
+#wheel .slot .nm { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; }
+#wheel .slot .am { font-size: .8rem; color: #ffd24a; }
+#wheel .slot.on { background: rgba(255,255,255,0.16); border-color: #fff; transform: translate(-50%, -50%) scale(1.12); color: #fff; }
+#wheel .slot.locked { opacity: .35; }
+#wheel .wheel-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 40%; text-align: center; }
+#wheel .wheel-center b { display: block; font-size: 1.1rem; letter-spacing: .08em; text-transform: uppercase; }
+#wheel .wheel-center small { color: #aab3c0; font-size: .75rem; }
+
+#hud.hurt::after { content: ''; position: absolute; inset: 0; box-shadow: inset 0 0 120px rgba(220,0,0,0.65); animation: hurt .45s ease-out forwards; }
+@keyframes hurt { from { opacity: 1; } to { opacity: 0; } }
+#bigmsg.busted div { color: #4d8cff; }

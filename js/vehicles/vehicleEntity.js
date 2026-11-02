@@ -38,6 +38,47 @@ export class VehicleEntity {
         this.controls = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
     }
 
+    // --- damage: smoke below 35 %, fire at 0, explosion a few seconds later ---
+    damage(amount, by = null) {
+        if (!this.alive || amount <= 0) return;
+        this.health -= amount;
+        if (by) this.lastHitBy = by;
+        if (this.health <= 0 && this.burnT === undefined) this.burnT = 4 + Math.random() * 2;
+    }
+
+    _updateDamage(dt) {
+        const g = this.world.game, fx = g && g.effects;
+        if (!fx) return;
+        const x = this.veh.x, y = this.veh.y, z = this.veh.z + this.rig.dims.y * 0.7;
+        if (!this.alive) {
+            this.wreckT = (this.wreckT || 0) + dt;
+            if (this.wreckT < 25) fx.fire(x, z, -y, dt, Math.max(0, 1 - this.wreckT / 25));
+            return;
+        }
+        if (this.burnT !== undefined) {
+            this.burnT -= dt;
+            fx.fire(x + Math.cos(this.veh.th) * this.veh.P.halfLength * 0.6, z, -(y + Math.sin(this.veh.th) * this.veh.P.halfLength * 0.6), dt, 1);
+            if (this.burnT <= 0) this.explode();
+        } else if (this.health < this.maxHealth * 0.35 && Math.random() < dt * 8) {
+            fx.smoke.emit({ x: x + Math.cos(this.veh.th) * this.veh.P.halfLength * 0.7, y: z, z: -(y + Math.sin(this.veh.th) * this.veh.P.halfLength * 0.7),
+                vx: 0, vy: 1.5, vz: 0, life: 2, size: 0.8, grow: 3, alpha: 0.35, r: 0.25, g: 0.25, b: 0.25, fadeIn: 8 });
+        }
+    }
+
+    explode() {
+        if (!this.alive) return;
+        this.alive = false;
+        this.health = 0;
+        this.burnT = undefined;
+        for (const m of this.rig.mats.paint) { m.color.set(0x161514); if (m.clearcoat !== undefined) m.clearcoat = 0; m.roughness = 0.9; }
+        this.setLights(false);
+        for (const m of this.rig.mats.tail) m.emissiveIntensity = 0;
+        // a little hop
+        this.veh.vx *= 0.3; this.veh.vy *= 0.3; this.veh.r += (Math.random() - 0.5) * 2;
+        this.hop = 1.2;
+        if (this.world.game) this.world.game.explosion(this.veh.x, this.veh.y, this.veh.z + 0.8, this.lastHitBy);
+    }
+
     get x() { return this.veh.x; }
     get y() { return this.veh.y; }
     get th() { return this.veh.th; }
@@ -79,6 +120,7 @@ export class VehicleEntity {
         if (Math.abs(v.x) > lim) v.vx -= Math.sign(v.x) * 6 * dt;
         if (Math.abs(v.y) > lim) v.vy -= Math.sign(v.y) * 6 * dt;
         this.syncVisual(dt);
+        this._updateDamage(dt);
         return this.impacts;
     }
 
@@ -128,7 +170,8 @@ export class VehicleEntity {
         this.zSmooth = dt > 0 ? damp(this.zSmooth, zT, 25, dt) : zT;
         if (Math.abs(this.zSmooth - zT) > 1.5) this.zSmooth = zT;
         v.z = this.zSmooth;
-        rig.root.position.set(v.x, this.zSmooth, -v.y);
+        if (this.hop) { this.hopV = (this.hopV ?? 6) - 18 * dt; this.hop = Math.max(0, this.hop + this.hopV * dt); if (this.hop === 0) this.hopV = undefined; }
+        rig.root.position.set(v.x, this.zSmooth + (this.hop || 0), -v.y);
         const gp = Math.atan2(hF - hB, L), gr = Math.atan2(hL - hR, W);
         this.groundPitch = dt > 0 ? damp(this.groundPitch, gp, 18, dt) : gp;
         this.groundRoll = dt > 0 ? damp(this.groundRoll, gr, 18, dt) : gr;
