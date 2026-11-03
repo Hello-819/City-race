@@ -150,7 +150,7 @@ export class Traffic {
         // density by where the player is
         const r = g.map.roadAt(pos.x, pos.y);
         const zone = r && r.edge.type === 'highway' ? 'highway' : g.map.zoneAt(pos.x, pos.y);
-        const want = Math.round(T.maxCars * (T.density[zone] ?? 0.5));
+        const want = Math.round(T.maxCars * (T.density[zone] ?? 0.5) * (this.density ?? 1));
         // recycle far / abandoned cars
         for (let i = this.cars.length - 1; i >= 0; i--) {
             const c = this.cars[i], v = c.v;

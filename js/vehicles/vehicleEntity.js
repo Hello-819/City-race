@@ -181,7 +181,7 @@ export class VehicleEntity {
         const hF = hAt(c * L / 2, s * L / 2), hB = hAt(-c * L / 2, -s * L / 2);
         const hL = hAt(-s * W / 2, c * W / 2), hR = hAt(s * W / 2, -c * W / 2);
         let zT = (hF + hB + hL + hR) / 4;
-        if (this.inWater > 0.9) zT = Math.max(zT, CONFIG.map.seaLevel - 1.1);
+        if (this.inWater > 0.9) zT = Math.max(zT, map.waterLevel(v.x, v.y) - 1.1);
         // gravity: drive off a ledge / bridge and you fall; otherwise follow the road
         this.vz = this.vz || 0;
         if (dt > 0 && zT < this.zSmooth - 0.35) {

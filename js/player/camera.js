@@ -71,6 +71,8 @@ export class GameCamera {
             if (hit) { d = Math.max(0.3, k - 0.25); break; }
         }
         this.dist = d < this.dist ? d : damp(this.dist, d, 5, dt);
+        // squeezed against a wall: hide the character instead of filling the screen with it
+        player.person.root.visible = this.dist > 0.85 || !!player.ragdoll;
         let cx = tx - fx * this.dist, cy = ty - fy * this.dist, cz = tz - fz * this.dist;
         const g = map.surfaceAt(cx, cy, _s, player.z + 0.5).h + 0.3;
         if (cz < g) cz = g;

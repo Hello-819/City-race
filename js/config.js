@@ -67,6 +67,16 @@ export const CONFIG = {
         maxCachedData: 600,        // chunk data (colliders) kept in memory
     },
 
+    // Graphics presets (Options > Graphics quality). View distance = far
+    // chunk radius; fog follows it. `adaptive` lowers / restores the view
+    // distance and resolution automatically to hold the target frame rate.
+    quality: {
+        low: { near: 320, far: 850, pixelRatio: 0.75, shadows: false, shadowSize: 1024, peds: 14, traffic: 0.6 },
+        medium: { near: 480, far: 1400, pixelRatio: 1.0, shadows: true, shadowSize: 2048, peds: 22, traffic: 0.85 },
+        high: { near: 620, far: 2000, pixelRatio: 1.5, shadows: true, shadowSize: 4096, peds: 28, traffic: 1 },
+        adaptive: { targetFps: 50, minFar: 650, step: 0.12 },
+    },
+
     // Road types: half width (m), lanes per direction, lane width, speed limit (m/s)
     roads: {
         highway: { half: 7.5, lanes: 2, laneW: 3.5, speed: 28, sidewalk: 0, tex: 'city' },

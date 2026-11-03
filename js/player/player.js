@@ -77,7 +77,8 @@ export class Player {
 
         // jump / gravity
         if (this.swimming) {
-            this.z = damp(this.z, CONFIG.map.seaLevel - 1.25, 6, dt); this.vz = 0; this.onGround = false;
+            const wl = map.waterLevel ? map.waterLevel(this.x, this.y) : CONFIG.map.seaLevel;   // sea or river surface
+            this.z = damp(this.z, wl - 1.25, 6, dt); this.vz = 0; this.onGround = false;
         } else {
             if (this.onGround && input.actHit('jump') && !this.dead) { this.vz = P.jumpSpeed; this.onGround = false; }
             this.vz -= 14 * dt;

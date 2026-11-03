@@ -29,7 +29,7 @@ export class Input {
 
         window.addEventListener('keydown', (e) => {
             if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'F1'].includes(e.code)) e.preventDefault();
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'F1', 'F3'].includes(e.code)) e.preventDefault();
             if (!this.keys.has(e.code)) this.pressed.add(e.code);
             this.keys.add(e.code);
             this.usingPad = false;

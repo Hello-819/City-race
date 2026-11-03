@@ -198,7 +198,8 @@ export class Peds {
         this.spawnTimer -= dt;
         const civs = this.active.reduce((n, p) => n + (p.cop ? 0 : 1), 0);
         const zone = g.map.zoneAt(pos.x, pos.y);
-        const want = zone === 'country' ? 2 : zone === 'suburb' ? Math.round(N.pedCount * 0.55) : N.pedCount;
+        const max = Math.min(this.maxCount || N.pedCount, N.pedCount);      // graphics preset
+        const want = zone === 'country' ? 2 : zone === 'suburb' ? Math.round(max * 0.55) : max;
         if (this.spawnTimer <= 0 && civs < want) { this.spawnTimer = 0.15; this._trySpawnCivilian(); }
         for (let i = this.active.length - 1; i >= 0; i--) {
             const p = this.active[i];

@@ -1,9 +1,10 @@
-# City Race
+# Harbor Heat
 
-An open-world crime-sandbox game that runs in the browser (Three.js, no build
-step). Explore one persistent 8 × 8 km island on foot or by car: a downtown of
-towers, suburbs, a highway ring, countryside, beaches and a mountain range,
-all under a continuous day/night cycle.
+An open-world crime sandbox that runs in the browser (Three.js, no build
+step). Explore Isla Coral, one persistent island of about 7.8 x 11.8 km, on foot
+or by car. It has a downtown of towers, suburbs, a highway ring with flyovers and
+curved interchanges, farmland, a river with bridges, beaches, and a
+switchback road up into the mountains, all under a continuous day/night cycle.
 
 ## Running it
 
@@ -21,35 +22,32 @@ capture the mouse. Progress is saved in the browser (localStorage).
 
 ## Features
 
-- **One persistent world**: no modes. One clock runs continuously (24 minutes per game
-  day by default) and drives the sun, moon, sky, fog, street lamps and lit windows.
-- **Seamless open map**: a generated 8 × 8 km island streamed in 240 m chunks.
-  Nearby chunks get full detail; distant chunks get one merged low-detail mesh; a
-  coarse whole-island horizon mesh and an endless ocean fill the rest. Chunks are
-  built within a per-frame time budget, so there are no loading screens. The map edge
-  is sea all round, with mountains to the north.
-- **On foot**: walk, sprint, jump and swim. Get in and out of any car with `F`, and
-  pull NPC drivers out of theirs (carjacking).
-- **Weapons**: pistol, SMG, shotgun, assault rifle and sniper rifle (plus fists), each
-  with its own damage, fire rate, reload time, ammo, recoil and accuracy. Aim with
-  right mouse (the crosshair tightens, the sniper rifle zooms). Hits show hit markers
-  and shots show muzzle flashes and tracers; sound effects are generated in code.
-  Hold `Q`/`Tab` for a **radial weapon wheel** that slows time.
-- **Reactive NPCs**: pedestrians walk the pavements. When violence breaks out they
-  flee, phone the police, or (if armed) shoot back. Drivers panic, honk and swerve.
-- **Health, armour, death**: "WASTED" respawns you at the nearest hospital (for a fee).
-- **Wanted level (1–5 stars)**: police cars chase you and officers get out and fight.
-  Stay out of sight to lose the stars. Stand still next to an officer and you are
-  "BUSTED".
-- **Enterable shops**: gun shop, clothing store, car dealership with a garage,
-  24/7 store (health and armour) and café (food restores health). Each fades into its
-  own interior and returns you to the same spot outside.
-- **Money**: cash dropped by NPCs, 60 hidden packages and timed courier jobs (yellow
-  `J` markers by 24/7 stores).
-- **Traffic**: 13 civilian models and 4 rare ones (sports car 1/50, supercar 1/200,
-  classic 1/120, police interceptor 1/150 per spawn). Rare cars have a glowing ring
-  and a label. AI drivers follow lanes, stop at traffic lights and keep their distance.
-  Vehicles take damage, smoke, catch fire and explode.
+- **One persistent world**: a single clock runs the day/night cycle (24 minutes per game
+  day by default), with lit windows, street lamps and headlights at night.
+- **Seamless open map**: streamed in 240 m chunks with near and far levels of detail,
+  a horizon mesh and an endless ocean. The view distance follows the graphics preset
+  and adapts automatically to hold the frame rate (press `F3` for live stats).
+- **Roads**: a city grid, curved highway corners, 20 flyover interchanges with curved
+  ramps, river bridges, and a 3.7 km mountain pass. Physics knows which level you are
+  on (deck or road below), and cars can fly off ledges.
+- **Traffic**: real car models (Kenney Car Kit) with see-through glass, modelled
+  interiors and a cockpit view. AI drivers follow lanes and traffic lights, give
+  way, overtake, honk, swerve and panic. Rare cars (sports 1/50, supercar 1/200,
+  classic, prototype, police interceptor) glow and get a label. Parked cars line the
+  suburbs and fill the car parks.
+- **On foot**: 12 character models (Mixamo-animated and Quaternius), ragdoll deaths,
+  and a two-handed aiming pose.
+- **Weapons**: pistol, SMG, shotgun, assault rifle and sniper rifle, chosen from a radial
+  wheel (time slows while it is open). Drive-bys work from cars. Bullets hit people,
+  cars, walls, trees and poles. Cars knock lamp posts and trees down.
+- **NPCs and police**: pedestrians flee, phone the police or fight back. The wanted
+  level runs from 1 to 5 stars; police plan A* routes to you, and officers deploy and
+  shoot. Lose them by breaking line of sight.
+- **Shops** (three interior styles per type): gun shop, clothing (outfits and
+  characters), car dealership and garage, 24/7 store, café, and hospital treatment.
+- **Money and missions**: five story missions (yellow M), courier jobs (J), 60 hidden
+  packages, and cash dropped by NPCs. The GPS draws a route to every objective, or to a
+  waypoint you click on the map.
 
 ## Controls
 

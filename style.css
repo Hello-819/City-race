@@ -196,3 +196,5 @@ button.danger { color: #ff8a80; border-color: #5a2a2a; }
 
 #help-hint { position: absolute; left: 252px; bottom: 22px; font-size: .78rem; color: rgba(255,255,255,.7); }
 @media (max-width: 700px) { #help-hint { left: 170px; } }
+
+#perf { position: fixed; left: 50%; top: 4px; transform: translateX(-50%); z-index: 50; font: 12px/1.4 monospace; background: rgba(0,0,0,.6); padding: 3px 8px; border-radius: 4px; display: none; pointer-events: none; }

@@ -86,7 +86,7 @@ export class Game {
     start() {
         const s = this.save.pos;
         const P = CONFIG.player.spawn;
-        if (s && this.map.inBounds(s.x, s.y)) this.player.teleport(s.x, s.y, s.yaw);
+        if (s && this.map.inBounds(s.x, s.y) && this._safeSpot(s.x, s.y)) this.player.teleport(s.x, s.y, s.yaw);
         else this.player.teleport(P.x, P.y, Math.PI / 2);
         this.player.health = this.save.health || 100;
         this.player.armour = this.save.armour ?? 0;
@@ -97,6 +97,12 @@ export class Game {
         this.spawnParked('sports', 9.0, -16, Math.PI / 2);
         this.streamer.update(this.player.x, this.player.y, Infinity);
         this.hud.notify('Welcome to the island. <b>WASD</b> move, mouse look, <b>F</b> enter cars, <b>right mouse</b> aim, <b>left mouse</b> shoot, hold <b>Q</b> for the weapon wheel, <b>M</b> map.', 9);
+    }
+
+    // Is (x, y) dry land outside buildings? (old saves may predate map changes)
+    _safeSpot(x, y) {
+        if (this.map.surfaceAt(x, y).water > 0.5) return false;
+        return !this.map.collidersNear(x, y, 2).boxes.some(b => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1);
     }
 
     // ------------------------------------------------------------ vehicles
@@ -350,7 +356,7 @@ export class Game {
             this.hud.drawFullMap(this._hudState());
             return;
         }
-        this._updateGps(rawDt);
+        if (!this.interiors.inside) this._updateGps(rawDt);
         // --- inside a shop: only the room, the player and the shop UI run ---
         if (this.interiors.inside) { this._updateInterior(rawDt); return; }
         // --- doors ---
@@ -532,7 +538,9 @@ export class Game {
         if (map.surfaceAt(x, y).kind === 'water') return 'Open Water';
         const r = map.roadAt(x, y);
         if (r && r.edge.type === 'highway') return 'Ring Highway';
+        if (r && r.edge.type === 'mountain') return 'Granite Pass';
         if (y > MC.mountainY + 100) return 'Granite Ridge';
+        if (map.waterLevel(x, y) > MC.seaLevel + 0.1 || (r && r.edge.type !== 'ramp' && map.heightAt(x, y) < map.waterLevel(x, y))) return 'Coral River';
         if (map.shoreDist(x, y) < MC.beachWidth + 80) return y < 0 ? 'Coral Beach' : x > 0 ? 'East Shore' : 'West Shore';
         const z = map.zoneAt(x, y);
         if (z === 'city') return Math.hypot(x, y) < MC.downtownRadius ? 'Downtown' : 'Midtown';
@@ -570,7 +578,9 @@ export class Game {
 
     // ------------------------------------------------------------------ save
     snapshot() {
-        const p = this.player, pos = p.position;
+        const p = this.player;
+        // inside a shop the player is in room coordinates: save the spot outside the door
+        const pos = this.interiors.current ? this.interiors.current.outside : p.position;
         Object.assign(this.save, {
             money: this.money, hour: this.env.hour, health: p.dead ? 100 : p.health, armour: p.armour,
             pos: { x: pos.x, y: pos.y, yaw: p.yaw }, outfit: p.outfit, weapons: this.weapons.serialize(),
