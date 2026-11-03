@@ -215,6 +215,8 @@ function frame(now) {
     input.endFrame();
 }
 
+$('fullmap').addEventListener('click', (e) => { if (game && game.mapOpen) game.mapClick(e.clientX, e.clientY); });
+
 window.addEventListener('beforeunload', () => { if (game) game.snapshot(); });
 
 // ------------------------------------------------------------- boot

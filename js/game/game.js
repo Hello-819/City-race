@@ -121,6 +121,47 @@ export class Game {
         if (Math.hypot(v.x - p.x, v.y - p.y) < 60) this.audio.horn();
     }
 
+    // ------------------------------------------------------------- map / GPS
+    // The full map frees the mouse so you can click to set a waypoint.
+    setMapOpen(open) {
+        this.mapOpen = open;
+        this.wantsCursor = open;
+        if (open) this.input.exitLock(); else this.input.requestLock();
+    }
+
+    // Click on the full map: set (or clear) the waypoint.
+    mapClick(px, py) {
+        const w = this.hud.mapView.screenToWorld(px, py);
+        if (!w) return;
+        if (this.waypoint && Math.hypot(this.waypoint.x - w.x, this.waypoint.y - w.y) < 120) this.waypoint = null;
+        else this.waypoint = { x: w.x, y: w.y };
+        this.gpsT = 0;
+    }
+
+    // GPS: road route to the job / mission target, else the map waypoint.
+    gpsTarget() {
+        if (this.missions && this.missions.target) return this.missions.target;
+        if (this.jobs.job) return this.jobs.job;
+        return this.waypoint;
+    }
+
+    _updateGps(dt) {
+        this.gpsT = (this.gpsT || 0) - dt;
+        if (this.gpsT > 0) return;
+        this.gpsT = 1.5;
+        const t = this.gpsTarget(), p = this.player.position;
+        if (!t || Math.hypot(t.x - p.x, t.y - p.y) < 25) { this.route = null; return; }
+        const r = this.map.route(p.x, p.y, t.x, t.y);
+        if (!r) { this.route = null; return; }
+        const pts = [{ x: p.x, y: p.y }];
+        for (const { edge, fwd } of r.path) {
+            const n = Math.max(1, Math.ceil(edge.len / 15));
+            for (let i = 0; i <= n; i++) pts.push(this.map.edgePoint(edge, fwd ? edge.len * i / n : edge.len * (1 - i / n), 0, {}));
+        }
+        pts.push({ x: t.x, y: t.y });
+        this.route = pts;
+    }
+
     // -------------------------------------------------------- purchases
     setOutfit(o) {
         const spec = o.kind === 'man' ? { kind: 'man', top: o.top, bottom: o.bottom } : { kind: o.kind, tint: o.tint, noTint: o.noTint };
@@ -275,12 +316,14 @@ export class Game {
     update(rawDt) {
         const input = this.input, player = this.player;
         // --- map toggle ---
-        if (input.actHit('map') && !this.wheel.open) this.mapOpen = !this.mapOpen;
+        if (input.actHit('map') && !this.wheel.open && !this.shopUI.open) this.setMapOpen(!this.mapOpen);
         if (this.mapOpen) {
-            if (input.hit('Escape', 'KeyP')) this.mapOpen = false;
+            if (input.hit('Escape', 'KeyP')) this.setMapOpen(false);
+            this._updateGps(rawDt);
             this.hud.drawFullMap(this._hudState());
             return;
         }
+        this._updateGps(rawDt);
         // --- inside a shop: only the room, the player and the shop UI run ---
         if (this.interiors.inside) { this._updateInterior(rawDt); return; }
         // --- doors ---
@@ -319,6 +362,7 @@ export class Game {
         for (const v of this.vehicles) {
             if (v !== pv && !(v.driver && v.driver !== 'player')) v.controls = PARKED;
             if (Math.abs(v.x - pos0.x) > 450 || Math.abs(v.y - pos0.y) > 450) continue;
+            if (v.sleeping && v.health > 0 && v.burnT === undefined) continue;     // parked: no physics until disturbed
             const impacts = v.update(dt);
             for (const h of impacts) {
                 if (h.speed > 6) v.damage((h.speed - 6) * 22, v === pv ? 'player' : null);
@@ -333,7 +377,9 @@ export class Game {
         for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
             const a = near[i], b = near[j];
             const hit = vehicleVsVehicle(a.veh, b.veh);
-            if (!hit || hit.speed < 1) continue;
+            if (!hit) continue;
+            a.sleeping = false; b.sleeping = false;          // a bump wakes parked cars
+            if (hit.speed < 1) continue;
             if (hit.speed > 4) { a.damage((hit.speed - 4) * 18, b === pv ? 'player' : null); b.damage((hit.speed - 4) * 18, a === pv ? 'player' : null); }
             if (a === pv || b === pv) {
                 this.audio.impact(hit.speed); this.cam.shake = Math.max(this.cam.shake, hit.speed / 30);
@@ -471,6 +517,7 @@ export class Game {
         for (const c of this.peds.copsActive) blips.push({ x: c.x, y: c.y, dot: true, color: '#3b6bff', size: 3 });
         for (const pd of this.peds.active) if (!pd.cop && !pd.dead && pd.state === 'fight') blips.push({ x: pd.x, y: pd.y, dot: true, color: '#ff3b30', size: 3 });
         if (this.extraBlips) blips.push(...this.extraBlips());
+        if (this.waypoint) blips.push({ x: this.waypoint.x, y: this.waypoint.y, icon: '⚑', color: '#c77dff', edge: true });
         // crosshair turns red over enemies
         let style = cross.style;
         if (style && this.weapons.aiming) {
@@ -484,7 +531,7 @@ export class Game {
         }
         return {
             player: p, vehicle: p.vehicle, clock: this.env.clockText, money: this.money,
-            wanted: { stars: this.police.stars, flash: this.police.searching }, weapon: this.weapons.hud(),
+            wanted: { stars: this.police.stars, flash: this.police.searching }, weapon: this.weapons.hud(), route: this.route,
             heading, blips, crosshair: style, spread: cross.spread,
         };
     }

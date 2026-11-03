@@ -41,6 +41,7 @@ export class VehicleEntity {
     // --- damage: smoke below 35 %, fire at 0, explosion a few seconds later ---
     damage(amount, by = null) {
         if (!this.alive || amount <= 0) return;
+        this.sleeping = false;
         this.health -= amount;
         if (by) this.lastHitBy = by;
         if (this.health <= 0 && this.burnT === undefined) this.burnT = 4 + Math.random() * 2;

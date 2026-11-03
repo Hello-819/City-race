@@ -714,6 +714,7 @@ export class GameMap {
         }
         if (!d.blocks.length) this._scatter(d);
         this._structures(d);
+        this._parkSpots(d);
         for (const p of d.scatter) if (p.r) d.circles.push(p);
         for (const bl of d.buildings) if (bl.style === 'farm' || bl.style === 'barn') d.boxes.push(bl);
         this.chunkCache.set(key, d);
@@ -759,6 +760,41 @@ export class GameMap {
                 d.buildings.push({ x0: x - 7, y0: y - 5, x1: x + 7, y1: y + 5, h: 6, style: 'farm', variant: rng.int(0, 5), ridgeX: true });
                 d.buildings.push({ x0: x + 14, y0: y - 9, x1: x + 30, y1: y + 9, h: 9, style: 'barn', ridgeX: false });
                 d.scatter = d.scatter.filter(p => Math.abs(p.x - x - 10) > 26 || Math.abs(p.y - y) > 18);
+            }
+        }
+    }
+
+    // Parking spots: half on the kerb along suburban streets, rows in city car
+    // parks. Deterministic, so the same cars are there when you come back.
+    _parkSpots(d) {
+        d.park = [];
+        const rng = new Rng(hashSeed(d.cx, d.cy, this.seed, 99));
+        const near = (x, y) => d.circles.some(c => Math.abs(c.x - x) < 3.5 && Math.abs(c.y - y) < 3.5) ||
+            d.doors.some(dr => Math.abs(dr.x - x) < 8 && Math.abs(dr.y - y) < 8);
+        let id = 0;
+        for (const b of d.blocks) {
+            if (b.zone === ZONE.SUBURB) {
+                const sides = [[b.x0, b.y0, b.x1, b.y0, 0, -1], [b.x0, b.y1, b.x1, b.y1, 0, 1], [b.x0, b.y0, b.x0, b.y1, -1, 0], [b.x1, b.y0, b.x1, b.y1, 1, 0]];
+                for (const [ax, ay, bx, by, nx, ny] of sides) {
+                    const len = Math.hypot(bx - ax, by - ay);
+                    for (let s = 18; s < len - 18; s += 9) {
+                        if (!rng.chance(0.28)) continue;
+                        // centre 0.25 m inside the kerb line: half on the road edge, half on the pavement
+                        const x = ax + (bx - ax) * s / len - nx * 0.25, y = ay + (by - ay) * s / len - ny * 0.25;
+                        if (near(x, y)) continue;
+                        const th = Math.atan2(by - ay, bx - ax) + (rng.chance(0.5) ? Math.PI : 0);
+                        d.park.push({ id: d.key * 1000 + id++, x, y, th });
+                    }
+                }
+            }
+            for (const lot of this.blockContent(b).parking) {
+                const along = lot.x1 - lot.x0 > lot.y1 - lot.y0;
+                const L = along ? lot.x1 - lot.x0 : lot.y1 - lot.y0;
+                for (const row of [0.22, 0.78]) for (let s = 2.5; s < L - 2; s += 3) {
+                    if (!rng.chance(0.55)) continue;
+                    const x = along ? lot.x0 + s : lot.x0 + (lot.x1 - lot.x0) * row, y = along ? lot.y0 + (lot.y1 - lot.y0) * row : lot.y0 + s;
+                    d.park.push({ id: d.key * 1000 + id++, x, y, th: (along ? Math.PI / 2 : 0) + (row < 0.5 ? 0 : Math.PI), lot: true });
+                }
             }
         }
     }

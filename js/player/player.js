@@ -195,6 +195,7 @@ export class Player {
     enter(vehicle) {
         this.vehicle = vehicle;
         vehicle.driver = 'player';
+        vehicle.sleeping = false;
         this.person.root.visible = false;
         this.aiming = false;
     }

@@ -64,6 +64,15 @@ export class MapView {
         ctx.restore();
     }
 
+    // full-map screen pixel -> world point (for waypoints)
+    screenToWorld(px, py) {
+        const t = this.fullTf;
+        if (!t) return null;
+        const B = this.map.bounds;
+        const x = B.x0 + (px - t.ox) / t.k, y = B.y1 - (py - t.oy) / t.k;
+        return this.map.inBounds(x, y) ? { x, y } : null;
+    }
+
     toPx(x, y) { return [(x - this.map.bounds.x0) * this.k, (this.map.bounds.y1 - y) * this.k]; }
 
     // Circular radar. heading: map-frame yaw that points "up" on the radar.
@@ -128,6 +137,7 @@ export class MapView {
         ctx.drawImage(this.image, ox, oy, SW, SH);
         const B = this.map.bounds;
         const P = (x, y) => [ox + (x - B.x0) * k, oy + (B.y1 - y) * k];
+        this.fullTf = { ox, oy, k, W, H };
         this._route(ctx, route, P, 3);
         for (const b of blips) { const [x, y] = P(b.x, b.y); ctx.save(); ctx.translate(x, y); drawBlip(ctx, b, 1.2); ctx.restore(); }
         const [x, y] = P(px, py);
@@ -139,14 +149,14 @@ export class MapView {
         ctx.font = '13px system-ui, sans-serif';
         ctx.textBaseline = 'middle';
         let ly = oy + 16;
-        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(ox + 8, oy + 4, 170, 24 + Object.keys(ICONS).length * 20);
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(ox + 8, oy + 4, 330, 24 + Object.keys(ICONS).length * 20);
         for (const [type, [sym, col]] of Object.entries(ICONS)) {
             ctx.save(); ctx.translate(ox + 22, ly + 6); drawBlip(ctx, { type, icon: sym, color: col }); ctx.restore();
             ctx.fillStyle = '#fff'; ctx.fillText(LABEL[type], ox + 40, ly + 6);
             ly += 20;
         }
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.fillText('M / Esc to close', ox + 14, ly + 10);
+        ctx.fillText('Click: set / clear waypoint · M / Esc to close', ox + 14, ly + 10);
     }
 }
 

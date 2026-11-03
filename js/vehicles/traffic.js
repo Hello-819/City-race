@@ -91,7 +91,9 @@ export class Traffic {
     // Return a car to its pool (or dispose wrecks).
     _recycle(c) {
         const g = this.game, v = c.v;
-        g.vehicles.splice(g.vehicles.indexOf(v), 1);
+        const vi = g.vehicles.indexOf(v);
+        if (vi >= 0) g.vehicles.splice(vi, 1);
+        v.sleeping = false; v.ambient = false;
         g.drivers = g.drivers.filter(d => d !== c.driver);
         if (v === g.personalCar || g.player.vehicle === v) return;
         if (!v.alive) { v.dispose(); return; }
@@ -178,7 +180,56 @@ export class Traffic {
         }
         this.spawnT -= dt;
         if (this.spawnT <= 0 && this.cars.length < want) { this.spawnT = 0.12; this._spawn(); }
+        this._updateParked();
         this._updateLights();
+    }
+
+    // Parked cars: spots from the chunk data within ~140 m get a (pooled)
+    // sleeping car; it is released again beyond ~200 m unless someone moved it.
+    // Spots whose car was stolen / wrecked / pushed stay empty this session.
+    _updateParked() {
+        const g = this.game, pos = g.player.position, map = g.map;
+        if (!this.parked) { this.parked = new Map(); this.parkGone = new Set(); this.parkT = 0; }
+        this.parkT -= 1 / 60;
+        if (this.parkT > 0) return;
+        this.parkT = 0.5;
+        const C = CONFIG.streaming.chunkSize;
+        const cx0 = Math.floor((pos.x - 140) / C), cx1 = Math.floor((pos.x + 140) / C);
+        const cy0 = Math.floor((pos.y - 140) / C), cy1 = Math.floor((pos.y + 140) / C);
+        for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+            for (const spot of map.chunkData(cx, cy).park) {
+                if (this.parked.has(spot.id) || this.parkGone.has(spot.id)) continue;
+                if (Math.hypot(spot.x - pos.x, spot.y - pos.y) > 140) continue;
+                if (g.vehicles.some(o => Math.abs(o.x - spot.x) < 3 && Math.abs(o.y - spot.y) < 3)) continue;
+                const model = this.pickParkedModel(spot);
+                const v = this._take(model);
+                v.place(spot.x, spot.y, spot.th);
+                v.sleeping = true;
+                v.parkedSpot = spot;
+                g.addVehicle(v);
+                this.parked.set(spot.id, { v, spot, model });
+            }
+        }
+        for (const [id, c] of this.parked) {
+            const v = c.v;
+            const moved = Math.hypot(v.x - c.spot.x, v.y - c.spot.y) > 2 || !v.alive || v.driver;
+            if (moved) { this.parkGone.add(id); this.parked.delete(id); v.parkedSpot = null; v.ambient = true; continue; }
+            if (Math.hypot(v.x - pos.x, v.y - pos.y) > 200) {
+                this.parked.delete(id);
+                this._recycle({ v, model: c.model, driver: null });
+            }
+        }
+        // abandoned former parked / stolen cars far away are cleaned up too
+        for (const v of [...g.vehicles]) {
+            if (!v.ambient || v === g.player.vehicle || v === g.personalCar || v.driver) continue;
+            if (Math.hypot(v.x - pos.x, v.y - pos.y) > 350) this._recycle({ v, model: v.info.model, driver: null });
+        }
+    }
+
+    pickParkedModel(spot) {
+        const list = ['hatch', 'saloon', 'saloon', 'coupe', 'suv', 'suvLuxury', 'pickup', 'van', 'taxi'];
+        if (Math.random() < 1 / 120) return 'classic';      // the odd rare car parked up
+        return list[(spot.id * 7919 + Math.floor(spot.x)) % list.length | 0] || 'saloon';
     }
 
     // Pooled traffic lights at the signalised junctions within ~180 m.

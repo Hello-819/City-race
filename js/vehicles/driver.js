@@ -104,7 +104,12 @@ export class Driver {
             let opts = n.edges.map(id => map.edges[id]).filter(e => e !== last.e);
             if (!opts.length) opts = [last.e];          // dead end: turn around
             let pick;
-            if (this.mode === 'pursue' && this.target) {
+            const ri = this.route ? this.route.findIndex(r => (r.fwd ? r.edge.a : r.edge.b) === n.id) : -1;
+            if (this.mode === 'pursue' && ri >= 0) {
+                // follow the A* route
+                pick = this.route[ri].edge;
+                this.route = this.route.slice(ri + 1);
+            } else if (this.mode === 'pursue' && this.target) {
                 let bd = Infinity;
                 for (const e of opts) {
                     const other = map.nodes[e.a === n.id ? e.b : e.a];
@@ -156,8 +161,25 @@ export class Driver {
             // lights & turns ahead
             vTarget = Math.min(vTarget, this._junctionLimit(time));
         }
+        // pursuit: re-plan an A* route to the target every few seconds
+        if (this.mode === 'pursue' && this.target && !direct) {
+            this.routeT = (this.routeT || 0) - dt;
+            if (this.routeT <= 0) {
+                this.routeT = 3;
+                const r = this.game.map.route(veh.x, veh.y, this.target.x, this.target.y);
+                this.route = r ? r.path : null;
+            }
+        }
         // --- obstacles ---
         const gap = this._obstacleGap();
+        // overtake: slow car ahead and a free lane beside us
+        this.laneT = (this.laneT || 0) - dt;
+        if (gap < 22 && this.laneT <= 0 && this.mode === 'cruise' && this.edges[0] && this.edges[0].e.lanes > 1 && speed > 2) {
+            this.laneT = 2.5;
+            const e = this.edges[0].e, cur = this._lane(e);
+            const want = cur === e.lanes - 1 ? cur - 1 : cur + 1;
+            if (this._laneFree(want - cur, e.laneW)) this._changeLane(want);
+        }
         if (gap < Infinity) {
             const stopDist = Math.max(0, gap - 2.5);
             vTarget = Math.min(vTarget, Math.sqrt(2 * 5 * stopDist));
@@ -165,7 +187,11 @@ export class Driver {
         if (gap < 6 && speed < 1) {
             this.blockedT += dt;
             if (this.blockedT > 2.5 && this.honkT <= 0) { this.honkT = 3 + Math.random() * 3; this.game.npcHonk(v); }
-            if (this.blockedT > 5 && this.mode === 'cruise') this.swerve = 2.5 * (Math.random() < 0.5 ? 1 : -1);
+            if (this.blockedT > 5 && this.mode === 'cruise') {
+                const e = this.edges[0] && this.edges[0].e;
+                if (e && e.lanes > 1) { const cur = this._lane(e); this._changeLane(cur === 0 ? 1 : cur - 1); this.blockedT = 2; }
+                else this.swerve = 2.5 * (Math.random() < 0.5 ? 1 : -1);
+            }
         } else this.blockedT = Math.max(0, this.blockedT - dt);
         this.honkT -= dt;
         if (this.swerve) { this.swerve *= Math.exp(-dt * 0.6); if (Math.abs(this.swerve) < 0.1) this.swerve = 0; }
@@ -228,10 +254,61 @@ export class Driver {
                 // amber: stop if there is room, otherwise go through
                 if (st === 'red' || (st === 'amber' && dStop > veh.speed * 1.2 + 4)) limit = Math.min(limit, Math.sqrt(2 * 4 * Math.max(0, dStop - 1)));
             }
+            if (!p.stop && p.node && p.node.edges.length >= 3 && this.mode !== 'pursue' && along < 30 && this._mustYield(p.node, p.edge)) {
+                this.yieldT = (this.yieldT || 0) + 1 / 60;
+                if (this.yieldT < 5) limit = Math.min(limit, Math.sqrt(2 * 4 * Math.max(0, along - 1)));   // don't wait forever
+            } else if (along > 30) this.yieldT = 0;
             limit = Math.min(limit, Math.sqrt(p.v * p.v + 2 * 3.5 * along));
             break;
         }
         return limit;
+    }
+
+    // Give way to traffic on a bigger road (or already in the junction).
+    _mustYield(node, myEdge) {
+        const g = this.game, myRank = RANKS[myEdge.type] || 0;
+        for (const o of g.vehicles) {
+            if (o === this.v || o.veh.speed < 1.5) continue;
+            const dx = node.x - o.x, dy = node.y - o.y, d = Math.hypot(dx, dy);
+            if (d > node.half + 22) continue;
+            if (d < node.half) return true;                          // someone is crossing right now
+            if ((o.veh.vx * dx + o.veh.vy * dy) / d < 1) continue;   // not heading into the junction
+            const od = o.driver;
+            const oe = od && od.edges && od.edges[0] ? od.edges[0].e : (g.map.roadAt(o.x, o.y) || {}).edge;
+            if (!oe || oe === myEdge) continue;
+            const or = RANKS[oe.type] || 0;
+            if (or > myRank) return true;                                         // bigger road has priority
+            if (or === myRank && d < Math.hypot(node.x - this.v.x, node.y - this.v.y) - 2) return true;   // first come, first served
+        }
+        return false;
+    }
+
+    // Is the lane `delta` lanes to our right (negative = left) clear?
+    _laneFree(delta, laneW) {
+        const g = this.game, veh = this.v.veh, c = Math.cos(veh.th), s = Math.sin(veh.th);
+        const off = -delta * laneW;                     // local +y is left
+        for (const o of g.vehicles) {
+            if (o === this.v) continue;
+            const dx = o.x - veh.x, dy = o.y - veh.y;
+            const lx = dx * c + dy * s, ly = -dx * s + dy * c;
+            if (lx > -14 && lx < 28 && Math.abs(ly - off) < 2.6) return false;
+        }
+        return true;
+    }
+
+    // Re-plan the current road in another lane (pure pursuit eases us across).
+    _changeLane(lane) {
+        const cur = this.edges[0];
+        if (!cur) return;
+        const map = this.game.map, veh = this.v.veh;
+        const pr = map._project(cur.e, veh.x, veh.y);
+        if (!pr) return;
+        const sTrav = cur.fwd ? pr.s : cur.e.len - pr.s;
+        if (sTrav > cur.e.len - 25) return;               // too close to the junction
+        this.laneChoice = lane;
+        this.edges = []; this.pts = [];
+        this._pushEdge(cur.e, cur.fwd, Math.min(sTrav + 14, cur.e.len - 8));
+        this._plan();
     }
 
     // Distance to the nearest thing in our path (cars, player, pedestrians).
@@ -259,5 +336,6 @@ export class Driver {
     }
 }
 
+const RANKS = { highway: 5, ramp: 4, city: 3, country: 2, mountain: 2, suburb: 1 };
 const STOP = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
 export { CONFIG };

@@ -139,6 +139,7 @@ export class Jobs {
         else { const r = map.nearestRoad(board.x + 900, board.y); dest = { x: r.x, y: r.y, name: 'the drop-off' }; }
         const dist = Math.hypot(dest.x - board.x, dest.y - board.y);
         this.job = { ...dest, dist, time: dist / 11 + 40, start: performance.now() };
+        g.gpsT = 0;   // show the GPS route right away
         this.destMarker.position.set(dest.x, map.surfaceAt(dest.x, dest.y).h, -dest.y);
         this.destMarker.visible = true;
         g.hud.notify(`Courier job: take the parcel to <b>${dest.name}</b> (${Math.round(dist)} m). Follow the yellow blip on the radar.`, 6);
