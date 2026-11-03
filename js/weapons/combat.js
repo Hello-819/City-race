@@ -59,6 +59,38 @@ export function lineOfSight(map, ax, ay, az, bx, by, bz) {
     return worldHit(map, ax, ay, az, dx / L, dy / L, dz / L, L) >= L - 0.4;
 }
 
+// Ray vs props: trunk / pole cylinders, tree crowns and rocks as spheres.
+const PROP_SHAPE = {
+    lamp: (p) => ({ r: 0.16, h: 7.1 }), tree: (p) => ({ r: 0.25 * (p.s || 1), h: 3 * (p.s || 1), crown: [4.2 * (p.s || 1), 1.9 * (p.s || 1)] }),
+    pine: (p) => ({ r: 0.25 * (p.s || 1), h: 3 * (p.s || 1), crown: [4.6 * (p.s || 1), 1.6 * (p.s || 1)] }),
+    palm: (p) => ({ r: 0.2, h: 6.5 * (p.s || 1) }), rock: (p) => ({ r: 0, h: 0, crown: [0.4, 1.2 * (p.s || 1)] }),
+    pillar: (p) => ({ r: 0.85, h: 0 }),
+};
+function propHit(map, ox, oy, oz, dx, dy, dz, range) {
+    let best = null;
+    for (let s = 0; s < Math.min(range, 400); s += 30) {
+        map.collidersNear(ox + dx * (s + 15), oy + dy * (s + 15), 22, _cols);
+        for (const c of _cols.circles) {
+            if (c.fallen) continue;
+            const shape = (PROP_SHAPE[c.type] || ((p) => ({ r: p.r, h: 3 })))(c);
+            const base = c.type === 'pillar' ? c.z0 : map.heightAt(c.x, c.y);
+            const top = c.type === 'pillar' ? c.z1 : base + shape.h;
+            if (shape.r > 0) {
+                const h = rayPerson(ox, oy, oz, dx, dy, dz, c.x, c.y, base, best ? best.t : range, shape.r, top - base);
+                if (h) best = { t: h.t, prop: c };
+            }
+            if (shape.crown) {
+                const cx = c.x, cy = c.y, cz = base + shape.crown[0], r = shape.crown[1];
+                const fx = ox - cx, fy = oy - cy, fz = oz - cz;
+                const b = fx * dx + fy * dy + fz * dz, cc = fx * fx + fy * fy + fz * fz - r * r, disc = b * b - cc;
+                if (disc > 0) { const t = -b - Math.sqrt(disc); if (t > 0 && t < (best ? best.t : range)) best = { t, prop: c, crown: true }; }
+            }
+        }
+        if (best && best.t < s + 30) break;
+    }
+    return best;
+}
+
 // Ray vs a standing person (vertical cylinder). Returns {t, head} or null.
 function rayPerson(ox, oy, oz, dx, dy, dz, px, py, pz, tmax, r = 0.38, h = 1.8) {
     const hl = Math.hypot(dx, dy);
@@ -106,6 +138,9 @@ export function traceShot(game, ox, oy, oz, dx, dy, dz, range, shooter = null) {
             if (h) best = { kind: 'player', t: h.t, target: pl, head: h.head };
         }
     }
+    // trees, lamp posts, pillars, rocks (vertical cylinders / spheres)
+    const pr = propHit(game.map, ox, oy, oz, dx, dy, dz, best.t);
+    if (pr) best = { kind: 'prop', t: pr.t, target: pr.prop, head: false };
     for (const ve of game.vehicles) {
         if (!ve.alive && ve.wreckT > 20) continue;
         if (shooter && shooter.vehicle === ve) continue;

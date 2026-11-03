@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { GameMap } from '../world/map.js';
 import { Streamer } from '../world/streamer.js';
+import { propMatrix } from '../world/chunkBuilder.js';
 import { setWorldNight, SPECIAL_NAMES } from '../world/materials.js';
 import { Player } from '../player/player.js';
 import { GameCamera } from '../player/camera.js';
@@ -119,6 +120,30 @@ export class Game {
     npcHonk(v) {
         const p = this.player.position;
         if (Math.hypot(v.x - p.x, v.y - p.y) < 60) this.audio.horn();
+    }
+
+    // ------------------------------------------------------------- props
+    // A bullet hit a tree / pole / pillar / rock.
+    hitProp(c, hit) {
+        const wood = c.type === 'tree' || c.type === 'pine' || c.type === 'palm';
+        if (wood) this.effects.wood(hit.x, hit.z, -hit.y);
+        else if (c.type === 'rock' || c.type === 'pillar') this.effects.dust(hit.x, hit.z, -hit.y);
+        else this.effects.impactSparks(hit.x, hit.z, -hit.y, 0, 0, 3);
+    }
+
+    // A vehicle snapped a lamp post / tree: it falls in the direction of travel.
+    knockProp(c, vx, vy) {
+        if (c.fallen) return;
+        c.fallen = true;
+        c.fallDir = Math.atan2(vx, -vy);       // three.js yaw of the travel direction
+        for (const [im, i, fn] of c._inst || []) {
+            im.setMatrixAt(i, propMatrix(c, fn));
+            im.instanceMatrix.needsUpdate = true;
+        }
+        const h = this.map.heightAt(c.x, c.y);
+        this.effects.impactSparks(c.x, h + 0.6, -c.y, vx * 0.3, -vy * 0.3, 6);
+        if (c.type !== 'lamp') this.effects.wood(c.x, h + 1, -c.y);
+        this.audio.impact(8);
     }
 
     // ------------------------------------------------------------- map / GPS
@@ -332,7 +357,7 @@ export class Game {
             if (door) this.interiors.enter(door);
         }
         // --- weapon wheel (hold) ---
-        const canWheel = !player.vehicle && !player.dead && !this.wantsCursor;
+        const canWheel = !player.dead && !this.wantsCursor;
         if (input.actHit('weaponWheel') && canWheel) this.wheel.show(this.weapons);
         if (this.wheel.open) {
             this.wheel.move(input.mouseDX, input.mouseDY);
@@ -394,7 +419,11 @@ export class Game {
         player.update(dt, input, this.cam.yaw, this.vehicles);
         let cross = { style: null, spread: 0 };
         if (!player.vehicle) cross = this.weapons.update(dt, input, !player.dead && !this.wheel.open && !this.wantsCursor && !player.swimming);
-        else { player.aiming = false; this.weapons.update(dt, input, false); }
+        else {
+            // drive-by shooting (pistol / SMG) while aiming with the right mouse button
+            cross = this.weapons.update(dt, input, !player.dead && !this.wheel.open && !this.wantsCursor);
+            if (this.weapons.aiming) this.cam.idle = 0;     // keep the camera where you aim
+        }
 
         // --- NPCs, police, pickups ---
         this.peds.update(dt);

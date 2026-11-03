@@ -471,14 +471,28 @@ function mergeSimple(list) {
 }
 
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+// Instance matrix for a prop; fallen props are tipped over away from the hit.
+const _qf = new THREE.Quaternion(), _ax = new THREE.Vector3();
+export function propMatrix(it, fn) {
+    const [x, y, z, yaw, sx, sy, sz] = fn(it);
+    _p.set(x, z, -y); _e.set(0, yaw, 0); _q.setFromEuler(_e); _s.set(sx, sy ?? sx, sz ?? sx);
+    if (it.fallen) {
+        // rotate about the horizontal axis perpendicular to the fall direction
+        _ax.set(Math.cos(it.fallDir), 0, -Math.sin(it.fallDir));
+        _qf.setFromAxisAngle(_ax, 1.45);
+        _q.premultiply(_qf);
+    }
+    return _m4.compose(_p, _q, _s);
+}
+
 function inst(geo, mat, items, fn, shadow = true, colorFn = null) {
     if (!items.length) return null;
     const im = new THREE.InstancedMesh(geo, mat, items.length);
     items.forEach((it, i) => {
-        const [x, y, z, yaw, sx, sy, sz] = fn(it);
-        _p.set(x, z, -y); _e.set(0, yaw, 0); _q.setFromEuler(_e); _s.set(sx, sy ?? sx, sz ?? sx);
-        im.setMatrixAt(i, _m4.compose(_p, _q, _s));
+        im.setMatrixAt(i, propMatrix(it, fn));
         if (colorFn) im.setColorAt(i, colorFn(it, i));
+        // remember the slot so a knocked-down prop can be re-posed in place
+        (it._inst || (it._inst = [])).push([im, i, fn]);
     });
     im.castShadow = shadow; im.receiveShadow = false;
     im.computeBoundingSphere();

@@ -158,6 +158,14 @@ export class VehicleEntity {
                 if (px < py) { const sx = -Math.sign(lx); nx = sx * cs; ny = sx * sn; depth = px + c.r; }
                 else { const sy = -Math.sign(ly); nx = -sy * sn; ny = sy * cs; depth = py + c.r; }
             }
+            // fast enough: lamp posts, trees and palms snap and fall instead of stopping the car
+            const closing = -(v.vx * nx + v.vy * ny);
+            if (KNOCKABLE[c.type] && closing > KNOCKABLE[c.type] * (c.s || 1) && this.world.game) {
+                this.world.game.knockProp(c, v.vx, v.vy);
+                v.vx *= 0.82; v.vy *= 0.82;
+                this.impacts.push({ speed: closing * 0.35, nx, ny, kind: 'prop', prop: c });
+                continue;
+            }
             const s = v.collide(nx, ny, depth, 0.15, 0.4);
             if (s > 0.5) this.impacts.push({ speed: s * 1.2, nx, ny, kind: 'prop', prop: c });
         }
@@ -246,4 +254,6 @@ export class VehicleEntity {
     }
 }
 
+// prop type -> closing speed (m/s) needed to knock it down
+const KNOCKABLE = { lamp: 7, palm: 9, tree: 13, pine: 15 };
 const DEAD = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };

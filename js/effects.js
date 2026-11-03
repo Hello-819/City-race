@@ -138,6 +138,11 @@ export class Effects {
             life: 0.4 + Math.random() * 0.3, size: 0.25, grow: 1.2, alpha: 0.9, r: 0.45, g: 0.02, b: 0.02, gravity: 6, fadeIn: 40 });
     }
 
+    wood(x, y, z) {
+        for (let i = 0; i < 10; i++) this.smoke.emit({ x, y, z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2.5, vz: (Math.random() - 0.5) * 3,
+            life: 0.5 + Math.random() * 0.4, size: 0.18, grow: 0.6, alpha: 0.9, r: 0.45, g: 0.32, b: 0.18, gravity: 7, fadeIn: 40 });
+    }
+
     dust(x, y, z) {
         for (let i = 0; i < 6; i++) this.smoke.emit({ x, y, z, vx: (Math.random() - 0.5) * 2, vy: Math.random() * 1.5, vz: (Math.random() - 0.5) * 2,
             life: 0.5 + Math.random() * 0.4, size: 0.3, grow: 2, alpha: 0.5, r: 0.6, g: 0.56, b: 0.5, fadeIn: 30 });
