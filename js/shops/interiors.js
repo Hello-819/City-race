@@ -212,7 +212,7 @@ export class Interiors {
             add(new THREE.BoxGeometry(0.2, 2.6, 6), std(0x3a2a1c), -R.hx + 0.1, 0, 1.4);
             for (let i = 0; i < 3; i++) { add(new THREE.BoxGeometry(2.4, 1.0, 0.8), std(0x2c2c2c), R.hx - 2, -3 + i * 2.6, 0.5); map.boxes.push({ x0: R.hx - 3.2, y0: -3.4 + i * 2.6, x1: R.hx - 0.8, y1: -2.6 + i * 2.6, h: 1 }); }
         } else if (type === 'clothes') {
-            const cols = CONFIG.shops.outfits.map(o => o.top || o.tint);
+            const cols = CONFIG.shops.outfits.map((o, i) => o.top || o.tint || ['#c0392b', '#2f5d8a', '#3a4a3a', '#d4a017', '#6b2fb3'][i % 5]);
             for (let r = 0; r < 4; r++) {
                 const x = -R.hx + 2.5 + r * 3.2;
                 add(new THREE.BoxGeometry(2.4, 0.05, 0.05), std(0xaaaaaa, { metalness: 0.8 }), x, -1, 1.6);
