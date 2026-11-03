@@ -497,6 +497,18 @@ function personClips(kind) {
     const ls = leftDir(S), lt = leftDir(T);
     const yaw = Math.atan2(ls.x, ls.z) - Math.atan2(lt.x, lt.z);
     const R = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw), Rinv = R.clone().invert();
+    // The animations are authored relative to a T-pose, but the characters
+    // are bound in an A-pose. Build a matching T-pose reference for the target
+    // by swinging each bone (Mixamo bones point along +Y towards their child)
+    // onto the source T-pose direction; without this the forearms stuck out.
+    const Y = new THREE.Vector3(0, 1, 0);
+    for (const [key, tb] of T) {
+        tb.refRest = tb.worldRest;
+        if (!S.has(key)) continue;
+        const dS = Y.clone().applyQuaternion(S.get(key).worldRest).applyQuaternion(R);
+        const dT = Y.clone().applyQuaternion(tb.worldRest);
+        tb.refRest = new THREE.Quaternion().setFromUnitVectors(dT, dS).multiply(tb.worldRest);
+    }
     const out = {};
     for (const clip of src.clips) {
         if (clip.name === 'TPose') continue;
@@ -528,7 +540,7 @@ function personClips(kind) {
                     // world delta from rest, applied to the target rest
                     d.copy(srcW(key)).multiply(inv.copy(S.get(key).worldRest).invert());
                     d.premultiply(R).multiply(Rinv);    // express the delta in the target's facing
-                    w = d.clone().multiply(tb.worldRest);
+                    w = d.clone().multiply(tb.refRest);
                 } else {
                     const pw = tb.parent && tgtWorld.has(tb.parent) ? tgtWorld.get(tb.parent) : tb.parentWorldRest;
                     w = pw.clone().multiply(inv.copy(tb.parentWorldRest).invert().multiply(tb.worldRest));

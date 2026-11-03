@@ -27,7 +27,7 @@ try {
 } catch (e) {
     $('loading').classList.remove('active');
     $('error').classList.add('active');
-    $('error').textContent = 'WebGL is not available in this browser. City Race needs WebGL to run.';
+    $('error').textContent = 'WebGL is not available in this browser. Harbor Heat needs WebGL to run.';
     throw e;
 }
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -99,9 +99,13 @@ $('sensitivity').value = settings.sensitivity;
 $('sensitivity').oninput = (e) => { settings.sensitivity = +e.target.value; saveSettings(); applyOptions(); };
 $('btn-settings').onclick = () => show('settings');
 $('btn-controls').onclick = () => show('controls');
+$('btn-menu-controls').onclick = () => show('controls');
 $('btn-pause-controls').onclick = () => show('controls');
 $('btn-pause-settings').onclick = () => show('settings');
-document.querySelectorAll('.modal .close').forEach((b) => b.onclick = () => b.closest('.modal').classList.remove('active'));
+document.querySelectorAll('.modal .close').forEach((b) => b.onclick = () => {
+    b.closest('.modal').classList.remove('active');
+    if (helpOverlay && b.closest('#controls')) { helpOverlay = false; resume(); }
+});
 $('btn-quit-game').onclick = () => { show('menu', false); show('quit-screen'); try { window.close(); } catch { /* browsers may refuse */ } };
 $('btn-unquit').onclick = () => { show('quit-screen', false); show('menu'); };
 $('btn-reset-save').onclick = () => {
@@ -185,13 +189,15 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 // ------------------------------------------------------------- loop
 let last = performance.now();
 let fpsAcc = 0, fpsFrames = 0, saveTimer = 0;
+let helpOverlay = false;      // controls opened with F1: closing it resumes play
 function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
     last = now;
     input.update(dt);
     if (state === 'playing' && game) {
-        if (input.actHit('pause') && !game.mapOpen && !game.wantsCursor) pause();
+        if (input.actHit('controls') && !game.wantsCursor) { pause(); show('pause', false); show('controls'); helpOverlay = true; }
+        else if (input.actHit('pause') && !game.mapOpen && !game.wantsCursor) pause();
         else {
             game.update(dt);
             $('fullmap').classList.toggle('active', game.mapOpen);
@@ -199,6 +205,8 @@ function frame(now) {
             if (saveTimer > 20) { saveTimer = 0; game.snapshot(); }
         }
         renderer.render(game.activeScene, camera);
+    } else if (state === 'paused' && helpOverlay && input.hit('F1', 'Escape')) {
+        helpOverlay = false; show('controls', false); resume();
     } else if ((state === 'menu' || state === 'paused') && game) {
         renderer.render(game.activeScene, camera);
     }

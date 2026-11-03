@@ -236,6 +236,7 @@ export const CONFIG = {
         camera: ['KeyC'],
         lookBack: ['KeyB'],
         pause: ['Escape', 'KeyP'],
+        controls: ['F1'],           // show the controls overlay
         fastTime: ['KeyT'],         // hold to fast-forward the clock (handy for testing)
     },
 };
