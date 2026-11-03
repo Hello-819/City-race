@@ -42,11 +42,11 @@ export class Streamer {
         const map = this.map;
         const R = Math.ceil(S.farRadius / CHUNK) + 1;
         const fcx = Math.floor(x / CHUNK), fcy = Math.floor(y / CHUNK);
-        const half = map.half / CHUNK;
+        const B = map.bounds;
         const want = [];
         const keep = new Set();
         for (let cx = fcx - R; cx <= fcx + R; cx++) for (let cy = fcy - R; cy <= fcy + R; cy++) {
-            if (cx < -half - 2 || cx >= half + 2 || cy < -half - 2 || cy >= half + 2) continue;
+            if (cx * CHUNK < B.x0 - 600 || cx * CHUNK > B.x1 + 600 || cy * CHUNK < B.y0 - 600 || cy * CHUNK > B.y1 + 600) continue;
             const dist = this._rectDist(cx, cy, x, y);
             const key = map.chunkKey(cx, cy);
             const cur = this.loaded.get(key);

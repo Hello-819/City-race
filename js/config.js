@@ -21,19 +21,35 @@ export const CONFIG = {
     // be multiples of `chunkSize` so blocks never straddle chunks.
     map: {
         seed: 1337,
-        size: 8000,                // world square (m). Everything outside is open ocean.
+        // island bounds (m): ~7.8 km wide, ~11.8 km tall; the city sits in the
+        // south, countryside, a river and mountains fill the north
+        bounds: { x0: -4100, x1: 4100, y0: -4100, y1: 8100 },
         cityHalf: 1200,            // downtown grid (dense towers)
         suburbHalf: 2400,          // suburbs (houses, shops)
-        ring: 2880,                // highway ring road half-size
+        ring: 2880,                // highway ring road half-size (elevated at junctions)
+        ringCornerRadius: 220,     // curved highway corners
         cityBlock: 120,            // road spacing downtown
         suburbBlock: 240,          // road spacing in suburbs
         countrySpacing: 960,       // road spacing in the countryside
-        spurEnd: 3360,             // beach access roads reach this far out
-        coastRadius: 3720,         // average distance of the coastline (superellipse)
+        countryLines: [-1920, -960, 0, 960, 1920],
+        countryReach: 3650,        // country roads run out towards the beaches...
+        northRows: [3840, 4800, 5760],   // ...and up through the northern farmland
+        coastCenterY: 2000,        // the island is an ellipse-ish superellipse:
+        coastRadiusX: 3900,
+        coastRadiusY: 5900,
         coastNoise: 160,
         beachWidth: 170,
-        mountainY: 3000,           // mountains rise north of this line
-        mountainHeight: 340,
+        mountainY: 5900,           // mountains rise north of this line
+        mountainHeight: 360,
+        // highway interchanges: flyover height, ramp distances
+        flyover: { clearance: 7.5, rampLength: 150, rampOut: 170, rampIn: 120 },
+        river: {                   // a river from the mountains to the west coast
+            points: [[-1300, 6250], [-1500, 5300], [-1250, 4300], [-1450, 3400], [-1440, 2900], [-1560, 2690],
+                [-2100, 2640], [-3000, 2600], [-4300, 2560]],
+            width: 44, bank: 40, depth: 3.5,
+        },
+        mountainRoad: [[0, 5760], [380, 6080], [-280, 6380], [480, 6720], [-180, 7020], [320, 7300], [120, 7480]],
+        maxGrade: 0.085,
         seaLevel: 0,
         landBase: 3,
         hills: { city: 2, suburb: 6, country: 20 },    // terrain amplitude per zone
@@ -54,6 +70,8 @@ export const CONFIG = {
     // Road types: half width (m), lanes per direction, lane width, speed limit (m/s)
     roads: {
         highway: { half: 7.5, lanes: 2, laneW: 3.5, speed: 28, sidewalk: 0, tex: 'city' },
+        ramp: { half: 4.9, lanes: 1, laneW: 3.6, speed: 16, sidewalk: 0, tex: 'mountain' },
+        mountain: { half: 4.9, lanes: 1, laneW: 3.6, speed: 14, sidewalk: 0, tex: 'mountain' },
         city: { half: 7.5, lanes: 2, laneW: 3.5, speed: 15, sidewalk: 4, tex: 'city' },
         suburb: { half: 4.9, lanes: 1, laneW: 3.6, speed: 13, sidewalk: 3, tex: 'mountain' },
         country: { half: 4.9, lanes: 1, laneW: 3.6, speed: 22, sidewalk: 0, tex: 'mountain' },

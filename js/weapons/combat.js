@@ -36,7 +36,7 @@ export function worldHit(map, ox, oy, oz, dx, dy, dz, range) {
         const mx = ox + dx * (s + 20), my = oy + dy * (s + 20);
         map.collidersNear(mx, my, 30, _cols);
         for (const b of _cols.boxes) {
-            const t = rayBox(ox, oy, oz, dx, dy, dz, b.x0, b.y0, -50, b.x1, b.y1, boxTop(map, b), best);
+            const t = rayBox(ox, oy, oz, dx, dy, dz, b.x0, b.y0, b.zMin ?? -50, b.x1, b.y1, boxTop(map, b), best);
             if (t < best) best = t;
         }
         if (best < s + 40) break;

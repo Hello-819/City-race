@@ -94,6 +94,7 @@ export class Ragdoll {
                 const g = this.groundAt(q.pos.x, q.pos.z) + 0.07;
                 // buildings: push the joint out through the nearest wall
                 for (const b of boxes) {
+                    if (b.rail) continue;
                     const mx = q.pos.x, my = -q.pos.z;
                     if (mx <= b.x0 || mx >= b.x1 || my <= b.y0 || my >= b.y1) continue;
                     const o = [[mx - b.x0, -1, 0], [b.x1 - mx, 1, 0], [my - b.y0, 0, -1], [b.y1 - my, 0, 1]].sort((u, w) => u[0] - w[0])[0];

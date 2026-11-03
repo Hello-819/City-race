@@ -106,13 +106,13 @@ export class Hud {
         if (st.crosshair) ch.style.setProperty('--spread', (6 + (st.spread || 0) * 120).toFixed(1) + 'px');
         // radar
         const pos = p.position;
-        this.mapView.drawRadar(this.rctx, this.radar.width, this.radar.height, pos.x, pos.y, st.heading, st.blips || []);
+        this.mapView.drawRadar(this.rctx, this.radar.width, this.radar.height, pos.x, pos.y, st.heading, st.blips || [], 260, st.route);
     }
 
     drawFullMap(st) {
         const c = this.full;
         if (c.width !== window.innerWidth || c.height !== window.innerHeight) { c.width = window.innerWidth; c.height = window.innerHeight; }
         const pos = st.player.position;
-        this.mapView.drawFull(this.fctx, c.width, c.height, pos.x, pos.y, st.heading, st.blips || []);
+        this.mapView.drawFull(this.fctx, c.width, c.height, pos.x, pos.y, st.heading, st.blips || [], st.route);
     }
 }

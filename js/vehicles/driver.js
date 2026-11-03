@@ -47,8 +47,10 @@ export class Driver {
     // Start on the given edge (travel direction fwd), at along-distance s.
     placeOn(e, fwd, s) {
         const p = this._lanePt(e, fwd, s);
-        const th = Math.atan2(fwd ? e.uy : -e.uy, fwd ? e.ux : -e.ux);
-        this.v.place(p.x, p.y, th);
+        const map = this.game.map;
+        const t = map.tangent(e, fwd ? s : e.len - s);
+        const th = Math.atan2(fwd ? t.y : -t.y, fwd ? t.x : -t.x);
+        this.v.place(p.x, p.y, th, map.roadHeight(e, fwd ? s : e.len - s) + 0.3);
         const sp = e.speed * 0.6;
         this.v.veh.vx = Math.cos(th) * sp; this.v.veh.vy = Math.sin(th) * sp;
         this.edges = [];
@@ -63,7 +65,8 @@ export class Driver {
         if (!r) return false;
         const e = r.edge;
         const dirx = Math.cos(this.v.th), diry = Math.sin(this.v.th);
-        const fwd = dirx * e.ux + diry * e.uy >= 0;
+        const t = this.game.map.tangent(e, r.s);
+        const fwd = dirx * t.x + diry * t.y >= 0;
         this.edges = []; this.pts = [];
         this._pushEdge(e, fwd, fwd ? r.s : e.len - r.s);
         this._plan();
@@ -86,6 +89,8 @@ export class Driver {
         const b = Math.max(a + 0.5, e.len - cut1);
         const pa = this._lanePt(e, fwd, a), pb = this._lanePt(e, fwd, b);
         this.pts.push({ x: pa.x, y: pa.y, v: e.speed, edge: e });
+        // curved roads: follow the curve with points every 8 m
+        if (e.poly) for (let s = a + 8; s < b - 4; s += 8) { const q = this._lanePt(e, fwd, s); this.pts.push({ x: q.x, y: q.y, v: e.speed, edge: e }); }
         this.pts.push({ x: pb.x, y: pb.y, v: e.speed, edge: e, stop: nEnd.signal ? nEnd : null, node: nEnd, axis: e.axis, end: true });
         this.edges.push({ e, fwd, endNode: nEnd });
     }

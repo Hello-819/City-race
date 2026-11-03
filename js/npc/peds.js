@@ -260,7 +260,7 @@ export class Peds {
         if (p.state === PED.FIGHT && p.aimYaw !== undefined && p.speed < 1.5) p.yaw = turnTo(p.yaw, p.aimYaw, 10, dt);
         else if (p.speed > 0.2) p.yaw = turnTo(p.yaw, Math.atan2(p.vy, p.vx), 8, dt);
         if (p.state !== PED.WALK && p.state !== PED.IDLE && dist < 120) this._collide(p);
-        p.z = damp(p.z, g.map.surfaceAt(p.x, p.y, _s).h, 20, dt);
+        p.z = damp(p.z, g.map.surfaceAt(p.x, p.y, _s, p.z + 0.5).h, 20, dt);
     }
 
     _shoot(p, dist, pz) {
@@ -287,6 +287,7 @@ export class Peds {
         this.game.map.collidersNear(p.x, p.y, 3, _cols);
         const r = 0.35;
         for (const b of _cols.boxes) {
+            if (b.zMax !== undefined && (p.z > b.zMax - 0.2 || p.z + 1.8 < b.zMin)) continue;
             const qx = clamp(p.x, b.x0, b.x1), qy = clamp(p.y, b.y0, b.y1);
             const dx = p.x - qx, dy = p.y - qy, d = Math.hypot(dx, dy);
             if (d >= r) continue;

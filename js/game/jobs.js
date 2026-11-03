@@ -48,7 +48,7 @@ export class Jobs {
                 const b = map.blocks[rng.int(0, map.blocks.length - 1)];
                 x = rng.chance(0.5) ? b.x0 + 1 : b.x1 - 1; y = rng.chance(0.5) ? b.y0 + 1 : b.y1 - 1;
             } else {
-                x = rng.range(-map.half + 400, map.half - 400); y = rng.range(-map.half + 400, map.half - 400);
+                x = rng.range(map.bounds.x0 + 400, map.bounds.x1 - 400); y = rng.range(map.bounds.y0 + 400, map.bounds.y1 - 400);
                 const s = map.surfaceAt(x, y);
                 if (s.water > 0 || s.h < 0.8) continue;
                 map.collidersNear(x, y, 3);

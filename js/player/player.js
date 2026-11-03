@@ -44,10 +44,10 @@ export class Player {
     get inVehicle() { return !!this.vehicle; }
     get position() { return this.vehicle ? { x: this.vehicle.x, y: this.vehicle.y } : { x: this.x, y: this.y }; }
 
-    teleport(x, y, yaw = this.yaw) {
+    teleport(x, y, yaw = this.yaw, zHint = null) {
         this.x = x; this.y = y; this.yaw = yaw;
         this.vx = this.vy = this.vz = 0;
-        this.z = this.world.map.surfaceAt(x, y, _surf).h;
+        this.z = this.world.map.surfaceAt(x, y, _surf, zHint).h;
         this._sync(0);
     }
 
@@ -55,7 +55,7 @@ export class Player {
     update(dt, input, camYaw, vehicles) {
         if (this.vehicle) { this.x = this.vehicle.x; this.y = this.vehicle.y; return; }
         const map = this.world.map;
-        const surf = map.surfaceAt(this.x, this.y, _surf);
+        const surf = map.surfaceAt(this.x, this.y, _surf, this.z + 0.5);
         const ground = surf.h;
         this.swimming = surf.water > 1.25;
         // desired velocity relative to the camera
@@ -94,9 +94,11 @@ export class Player {
         this.y += this.vy * dt;
         this._collide(vehicles);
         // the sea pushes swimmers back at the edge of the world
-        const lim = map.half - 60;
-        if (Math.abs(this.x) > lim) this.x -= Math.sign(this.x) * 2 * dt;
-        if (Math.abs(this.y) > lim) this.y -= Math.sign(this.y) * 2 * dt;
+        const B = map.bounds;
+        if (B) {
+            if (this.x < B.x0 + 60) this.x += 2 * dt; else if (this.x > B.x1 - 60) this.x -= 2 * dt;
+            if (this.y < B.y0 + 60) this.y += 2 * dt; else if (this.y > B.y1 - 60) this.y -= 2 * dt;
+        }
         this.speed = Math.hypot(this.vx, this.vy);
         this._sync(dt);
     }
@@ -105,6 +107,7 @@ export class Player {
         const r = P.radius, map = this.world.map;
         map.collidersNear(this.x, this.y, 4, _cols);
         for (const b of _cols.boxes) {
+            if (b.zMax !== undefined && (this.z > b.zMax - 0.2 || this.z + 1.8 < b.zMin)) continue;
             const qx = clamp(this.x, b.x0, b.x1), qy = clamp(this.y, b.y0, b.y1);
             let dx = this.x - qx, dy = this.y - qy;
             const d = Math.hypot(dx, dy);
@@ -121,6 +124,7 @@ export class Player {
             if (vn < 0) { this.vx -= vn * dx; this.vy -= vn * dy; }
         }
         for (const c of _cols.circles) {
+            if ((c.zMax !== undefined && this.z > c.zMax - 0.2) || c.fallen) continue;
             const dx = this.x - c.x, dy = this.y - c.y, d = Math.hypot(dx, dy), rr = r + c.r;
             if (d >= rr || d < 1e-5) continue;
             this.x += dx / d * (rr - d); this.y += dy / d * (rr - d);

@@ -63,7 +63,7 @@ export class GameCamera {
             const px = tx - fx * k, py = ty - fy * k, pz = tz - fz * k;
             let hit = false;
             for (const b of _cols.boxes) {
-                if (px > b.x0 - 0.25 && px < b.x1 + 0.25 && py > b.y0 - 0.25 && py < b.y1 + 0.25) {
+                if (px > b.x0 - 0.25 && px < b.x1 + 0.25 && py > b.y0 - 0.25 && py < b.y1 + 0.25 && !(b.zMin !== undefined && pz < b.zMin)) {
                     if (b.top === undefined) b.top = map.heightAt((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2) + b.h + (b.tier ? b.tier.h : 0) + 3;
                     if (pz < b.top) { hit = true; break; }
                 }
@@ -72,7 +72,7 @@ export class GameCamera {
         }
         this.dist = d < this.dist ? d : damp(this.dist, d, 5, dt);
         let cx = tx - fx * this.dist, cy = ty - fy * this.dist, cz = tz - fz * this.dist;
-        const g = map.surfaceAt(cx, cy, _s).h + 0.3;
+        const g = map.surfaceAt(cx, cy, _s, player.z + 0.5).h + 0.3;
         if (cz < g) cz = g;
         cam.position.set(cx, cz, -cy);
         this.fwd.set(fx, fz, -fy);

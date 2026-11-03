@@ -138,8 +138,11 @@ export class Game {
         const r = this.map.nearestRoad(door.x + door.nx * 8, door.y + door.ny * 8, 60);
         const e = r.edge;
         const off = e.half + 1.3;                                           // on the pavement edge
-        const p = this.map.edgePoint(e, Math.min(e.len - 12, r.s + 8), off * (Math.sign((door.x - e.c) * (e.axis === 'x' ? 1 : 0) + (e.c - door.y) * (e.axis === 'y' ? 1 : 0)) || 1), {});
-        const v = this.spawnParked(c.model, p.x, p.y, Math.atan2(e.uy, e.ux), c.color);
+        const side = Math.sign(this.map._project(e, door.x, door.y).d) || 1;    // the shop's side of the road
+        const s = Math.min(e.len - 12, r.s + 8);
+        const p = this.map.edgePoint(e, s, off * side, {});
+        const t = this.map.tangent(e, s);
+        const v = this.spawnParked(c.model, p.x, p.y, Math.atan2(t.y, t.x), c.color);
         v.owned = true;
         this.personalCar = v;
     }

@@ -134,7 +134,8 @@ export class Police {
             driver.target = pos;
             // face towards the player
             const e = r.edge;
-            const toward = (pos.x - r.x) * e.ux + (pos.y - r.y) * e.uy >= 0;
+            const tg = map.tangent(e, r.s);
+            const toward = (pos.x - r.x) * tg.x + (pos.y - r.y) * tg.y >= 0;
             driver.placeOn(e, toward, toward ? r.s : e.len - r.s);
             g.addVehicle(car, driver);
             this.units.push({ car, driver, deployed: false, officers: [], leaving: false });

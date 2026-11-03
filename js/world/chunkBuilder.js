@@ -134,6 +134,7 @@ const _col = new THREE.Color();
 export function terrainColor(map, x, y, h, slope, out = _col) {
     const zone = map.zoneAt(x, y);
     if (h < 2.2 && map.shoreDist(x, y) < MC.beachWidth + 60) return out.copy(h < 0 ? COL.wetSand : COL.sand);
+    if (h < map.waterLevel(x, y) + 0.6) return out.copy(COL.wetSand);
     if (y > MC.mountainY && (slope > 0.55 || h > 120)) return out.copy(h > 270 ? COL.snow : COL.rock);
     if (zone === 'city') return out.copy(COL.city);
     if (zone === 'suburb') return out.copy(COL.suburb);
@@ -178,43 +179,54 @@ function terrain(map, x0, y0, size, res, lower = 0) {
 }
 
 // ------------------------------------------------------------------ roads
+// Every road (straight grid road, flyover, curved ramp, mountain road) is a
+// ribbon along its edge; each piece belongs to the chunk containing its
+// midpoint. Heights come from map.roadHeight (decks, profiles or terrain).
 function roads(map, d, lod) {
     const gCity = new Geo(), gCountry = new Geo(), gJ = new Geo(), gX = new Geo();
-    const step = lod === 0 ? 10 : 40;
-    for (const e of edgesInChunk(map, d)) {
+    const step = lod === 0 ? 8 : 32;
+    const inChunk = (p) => p.x >= d.x0 && p.x < d.x1 && p.y >= d.y0 && p.y < d.y1;
+    const P = {};
+    for (const e of map.edgesInRect(d.x0, d.y0, d.x1, d.y1)) {
         const na = map.nodes[e.a], nb = map.nodes[e.b];
         const cutA = na.edges.length > 1 ? na.half : 0, cutB = nb.edges.length > 1 ? nb.half : 0;
-        const along0 = e.axis === 'x' ? d.y0 : d.x0, along1 = e.axis === 'x' ? d.y1 : d.x1;
-        const t0 = Math.max(e.t0 + cutA, along0), t1 = Math.min(e.t1 - cutB, along1);
-        if (t1 <= t0) continue;
+        const s0 = cutA, s1 = e.len - cutB;
+        if (s1 <= s0) continue;
         const g = e.type === 'city' || e.type === 'highway' ? gCity : gCountry;
-        const n = Math.max(1, Math.ceil((t1 - t0) / step));
         const lat = lod === 0 ? [-e.half, 0, e.half] : [-e.half, e.half];
-        const base = g.v;
-        for (let k = 0; k <= n; k++) {
-            const t = t0 + (t1 - t0) * k / n;
-            for (const dd of lat) {
-                const x = e.axis === 'x' ? e.c + dd : t, y = e.axis === 'x' ? t : e.c - dd;
-                g.vert(x, y, map.heightAt(x, y) + 0.06, (dd + e.half) / (2 * e.half), t / 12);
-            }
-        }
         const L = lat.length;
-        for (let k = 0; k < n; k++) for (let j = 0; j + 1 < L; j++) {
-            const a = base + k * L + j;
-            // winding must face up for both axes
-            g.quad(a, a + 1, a + L + 1, a + L);
+        const n = Math.max(1, Math.ceil((s1 - s0) / step));
+        let prev = -1;
+        for (let k = 0; k < n; k++) {
+            const a = s0 + (s1 - s0) * k / n, b = s0 + (s1 - s0) * (k + 1) / n;
+            map.edgePoint(e, (a + b) / 2, 0, P);
+            if (!inChunk(P)) { prev = -1; continue; }
+            // emit the two rows (reuse the previous row when contiguous)
+            const row = (s) => {
+                const base = g.v;
+                for (const dd of lat) {
+                    map.edgePoint(e, s, dd, P);
+                    g.vert(P.x, P.y, map.roadHeight(e, s, e.elev ? null : P.x, P.y) + 0.06, (dd + e.half) / (2 * e.half), s / 12);
+                }
+                return base;
+            };
+            const r0 = prev >= 0 ? prev : row(a);
+            const r1 = row(b);
+            for (let j = 0; j + 1 < L; j++) g.quad(r0 + j, r0 + j + 1, r1 + j + 1, r1 + j);
+            prev = r1;
         }
         // zebra crossings in front of signalled junctions
         if (lod === 0) {
-            for (const [nd, t, dir] of [[na, e.t0 + cutA, 1], [nb, e.t1 - cutB, -1]]) {
-                if (!nd.signal || t < along0 || t > along1) continue;
-                const ta = t, tb = t + dir * 4;
-                const pts = [];
-                for (const tt of [ta, tb]) for (const dd of [-e.half, e.half]) {
-                    const x = e.axis === 'x' ? e.c + dd : tt, y = e.axis === 'x' ? tt : e.c - dd;
-                    pts.push(gX.vert(x, y, map.heightAt(x, y) + 0.08, (dd + e.half) / (2 * e.half) * (2 * e.half / 13), tt === ta ? 0 : 1));
+            for (const [nd, sA, dir] of [[na, s0, 1], [nb, s1, -1]]) {
+                if (!nd.signal) continue;
+                map.edgePoint(e, sA, 0, P);
+                if (!inChunk(P)) continue;
+                const ids = [];
+                for (const ss of [sA, sA + dir * 4]) for (const dd of [-e.half, e.half]) {
+                    map.edgePoint(e, ss, dd, P);
+                    ids.push(gX.vert(P.x, P.y, map.roadHeight(e, ss, P.x, P.y) + 0.08, (dd + e.half) / 13, ss === sA ? 0 : 1));
                 }
-                if ((e.axis === 'x') === (dir > 0)) gX.quad(pts[0], pts[1], pts[3], pts[2]); else gX.quad(pts[1], pts[0], pts[2], pts[3]);
+                gX.quad(ids[0], ids[1], ids[3], ids[2]);
             }
         }
     }
@@ -226,21 +238,66 @@ function roads(map, d, lod) {
     return [[gCity, m.roadCity], [gCountry, m.roadCountry], [gJ, m.asphalt], [gX, m.crosswalk]];
 }
 
-export function edgesInChunk(map, d) {
-    const out = [];
-    const seen = new Set();
-    for (let x = d.x0; x <= d.x1; x += 60) for (let y = d.y0; y <= d.y1; y += 60) {
-        for (const id of map.edgesNear(Math.min(x, d.x1 - 1), Math.min(y, d.y1 - 1))) {
-            if (seen.has(id)) continue; seen.add(id);
-            const e = map.edges[id];
-            const perp0 = e.axis === 'x' ? d.x0 : d.y0, perp1 = e.axis === 'x' ? d.x1 : d.y1;
-            if (e.c < perp0 || e.c >= perp1) continue;
-            const a0 = e.axis === 'x' ? d.y0 : d.x0, a1 = e.axis === 'x' ? d.y1 : d.x1;
-            if (e.t1 < a0 || e.t0 > a1) continue;
-            out.push(e);
+// Bridge / flyover decks: underside slab + parapets for every elevated piece,
+// concrete pillars down to the ground.
+function structures(map, d, lod) {
+    const g = new Geo();
+    const P = {}, Q = {};
+    for (const st of d.structs) {
+        const e = st.e;
+        const corners = (s, side, out) => map.edgePoint(e, s, side * (e.half + 0.5), out);
+        // underside: a slab 0.8 m thick under the deck, and its two side faces
+        const a0 = corners(st.s0, -1, {}), a1 = corners(st.s0, 1, {}), b0 = corners(st.s1, -1, {}), b1 = corners(st.s1, 1, {});
+        const zb0 = st.z0 - 0.85, zb1 = st.z1 - 0.85;
+        let i = g.v;
+        g.vert(a0.x, a0.y, zb0, 0, 0, 0, 0, -1); g.vert(b0.x, b0.y, zb1, 0, 1, 0, 0, -1); g.vert(b1.x, b1.y, zb1, 1, 1, 0, 0, -1); g.vert(a1.x, a1.y, zb0, 1, 0, 0, 0, -1);
+        g.quad(i, i + 1, i + 2, i + 3);
+        for (const [p0, p1, side] of [[a0, b0, -1], [a1, b1, 1]]) {
+            const t = map.tangent(e, (st.s0 + st.s1) / 2), nx = t.y * side, ny = -t.x * side;
+            i = g.v;
+            // outer face from slab bottom to the parapet top
+            g.vert(p0.x, p0.y, zb0, 0, 0, nx, ny, 0); g.vert(p1.x, p1.y, zb1, 1, 0, nx, ny, 0);
+            g.vert(p1.x, p1.y, st.z1 + 1.0, 1, 1, nx, ny, 0); g.vert(p0.x, p0.y, st.z0 + 1.0, 0, 1, nx, ny, 0);
+            if (side < 0) g.quad(i, i + 1, i + 2, i + 3); else g.quad(i + 1, i, i + 3, i + 2);
+            if (lod === 0) {
+                // inner face of the parapet
+                corners(st.s0, side * 0.96, P); corners(st.s1, side * 0.96, Q);
+                i = g.v;
+                g.vert(P.x, P.y, st.z0, 0, 0, -nx, -ny, 0); g.vert(Q.x, Q.y, st.z1, 1, 0, -nx, -ny, 0);
+                g.vert(Q.x, Q.y, st.z1 + 1.0, 1, 1, -nx, -ny, 0); g.vert(P.x, P.y, st.z0 + 1.0, 0, 1, -nx, -ny, 0);
+                if (side < 0) g.quad(i + 1, i, i + 3, i + 2); else g.quad(i, i + 1, i + 2, i + 3);
+                // parapet top
+                i = g.v;
+                g.vert(p0.x, p0.y, st.z0 + 1.0, 0, 0); g.vert(p1.x, p1.y, st.z1 + 1.0, 1, 0); g.vert(Q.x, Q.y, st.z1 + 1.0, 1, 1); g.vert(P.x, P.y, st.z0 + 1.0, 0, 1);
+                if (side < 0) g.quad(i, i + 1, i + 2, i + 3); else g.quad(i + 1, i, i + 3, i + 2);
+            }
         }
     }
-    return out;
+    for (const p of d.pillars) box(g, p.x - 0.8, p.y - 0.8, p.x + 0.8, p.y + 0.8, p.z0, p.z1, 0.3, 0.3, null, { top: false });
+    return g.build();
+}
+
+// River water surface in this chunk.
+function riverWater(map, d) {
+    const R = map.river, W = CONFIG.map.river.width / 2 + 6;
+    if (d.x1 < R.bx0 || d.x0 > R.bx1 || d.y1 < R.by0 || d.y0 > R.by1) return null;
+    const g = new Geo();
+    const poly = R.poly, step = 12;
+    let prev = -1;
+    for (let s = 0; s < poly.len; s += step) {
+        const s1 = Math.min(poly.len, s + step), m = poly.at((s + s1) / 2);
+        if (m.x < d.x0 || m.x >= d.x1 || m.y < d.y0 || m.y >= d.y1) { prev = -1; continue; }
+        const row = (ss) => {
+            const p = poly.at(ss), z = R.waterZ(ss) - 0.05, base = g.v;
+            g.vert(p.x - p.ty * W, p.y + p.tx * W, z, 0, ss / 20);
+            g.vert(p.x + p.ty * W, p.y - p.tx * W, z, 1, ss / 20);
+            return base;
+        };
+        const r0 = prev >= 0 ? prev : row(s), r1 = row(s1);
+        g.quad(r0, r0 + 1, r1 + 1, r1);
+        prev = r1;
+    }
+    return g.build();
 }
 
 // -------------------------------------------------------------- pavements
@@ -464,6 +521,8 @@ export function buildChunk(map, cx, cy, lod) {
     group.add(t);
     const parts = [...roads(map, d, lod)];
     if (lod === 0) parts.push(...pavements(map, d));
+    if (d.structs.length || d.pillars.length) parts.push([{ build: () => structures(map, d, lod) }, m.concrete]);
+    parts.push([{ build: () => riverWater(map, d) }, m.ocean]);
     for (const [g, mat] of parts) {
         const geo = g.build();
         if (!geo) continue;
@@ -485,12 +544,27 @@ export function buildChunk(map, cx, cy, lod) {
 // One coarse mesh of the whole island, drawn beneath the streamed chunks so
 // distant mountains and coastline are always visible.
 export function buildHorizon(map) {
-    const size = MC.size + 2000, res = 120;
-    const geo = terrain(map, -size / 2, -size / 2, size, res, 3);
-    const mesh = new THREE.Mesh(geo, worldMaterials().horizon);
+    const B = map.bounds, pad = 1200;
+    const w = B.x1 - B.x0 + 2 * pad, h = B.y1 - B.y0 + 2 * pad;
+    const g = terrainRect(map, B.x0 - pad, B.y0 - pad, w, h, Math.round(w / 85), Math.round(h / 85));
+    const mesh = new THREE.Mesh(g, worldMaterials().horizon);
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     return mesh;
+}
+
+// Coarse, lowered terrain for the horizon (rectangular, no skirts).
+function terrainRect(map, x0, y0, w, h, nx, ny) {
+    const g = new Geo(true);
+    for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+        const x = x0 + w * i / nx, y = y0 + h * j / ny;
+        const z = map.heightAt(x, y);
+        g.vert(x, y, z - 3 - Math.max(0, z) * 0.08, 0, 0, 0, 0, 1, terrainColor(map, x, y, z, 0));
+    }
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { const a = j * (nx + 1) + i; g.quad(a, a + 1, a + nx + 2, a + nx + 1); }
+    const geo = g.build();
+    geo.computeVertexNormals();
+    return geo;
 }
 
 export function disposeChunk(group) {
