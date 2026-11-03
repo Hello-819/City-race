@@ -123,7 +123,7 @@ export class Game {
 
     // -------------------------------------------------------- purchases
     setOutfit(o) {
-        const spec = o.kind === 'michelle' ? { kind: 'michelle', tint: o.tint } : { kind: 'man', top: o.top, bottom: o.bottom };
+        const spec = o.kind === 'man' ? { kind: 'man', top: o.top, bottom: o.bottom } : { kind: o.kind, tint: o.tint, noTint: o.noTint };
         this.player.setOutfit(spec);
         this.save.outfitId = o.id;
         this.save.outfit = this.player.outfit;
@@ -161,9 +161,11 @@ export class Game {
         if (before === 0) this.hud.notify('The police are after you! Get out of sight to lose your <b>wanted level</b>.', 4);
     }
 
-    hurtPlayer(amount) {
+    // impulse (optional): three.js world vector for the ragdoll if this kills us
+    hurtPlayer(amount, impulse = null) {
         const p = this.player;
         if (p.dead) return;
+        if (impulse) this.lastHurtImpulse = impulse;
         p.damage(amount);
         this.cam.shake = Math.max(this.cam.shake, 0.25);
         document.getElementById('hud').classList.remove('hurt'); void document.getElementById('hud').offsetWidth;
@@ -177,10 +179,13 @@ export class Game {
         const pp = this.player.position;
         const d = Math.hypot(pp.x - x, pp.y - y);
         this.cam.shake = Math.max(this.cam.shake, Math.max(0, 1.2 - d / 40));
-        if (d < 9) this.hurtPlayer(this.player.vehicle && this.player.vehicle.alive === false ? 500 : (9 - d) * 22);
+        if (d < 9) this.hurtPlayer(this.player.vehicle && this.player.vehicle.alive === false ? 500 : (9 - d) * 22, new THREE.Vector3((pp.x - x) / (d || 1) * 7, 7, -(pp.y - y) / (d || 1) * 7));
         for (const p of this.peds.active) {
             const dp = Math.hypot(p.x - x, p.y - y);
-            if (dp < 8) this.peds.damage(p, (8 - dp) * 40, by === 'player' ? 'player' : 'explosion', null);
+            if (dp < 8) {
+                const k = (8 - dp) * 0.7 / (dp || 1);
+                this.peds.damage(p, (8 - dp) * 40, by === 'player' ? 'player' : 'explosion', null, new THREE.Vector3((p.x - x) * k, 3 + (8 - dp) * 0.5, -(p.y - y) * k));
+            }
             else if (dp < 40 && !p.dead) this.peds.alarm(x, y, 0.1);
         }
         for (const v of this.vehicles) {
@@ -198,6 +203,9 @@ export class Game {
         this.deathKind = 'wasted';
         const p = this.player;
         if (p.vehicle) { const v = p.vehicle; p.exit(); v.controls = { throttle: 0, brake: 1, steer: 0, handbrake: 1 }; }
+        const imp = this.lastHurtImpulse || new THREE.Vector3(-Math.cos(p.yaw) * 2, 1, Math.sin(p.yaw) * 2);
+        p.startRagdoll(imp);
+        this.lastHurtImpulse = null;
         this.hud.big('WASTED', '');
         this.audio.boom();
         this.save.stats.deaths++;
@@ -214,8 +222,8 @@ export class Game {
     _updateDeath(dt) {
         this.deathT += dt;
         const p = this.player;
-        // fall over
-        if (this.deathKind === 'wasted') {
+        // collapse: ragdoll if we have one, otherwise a simple topple
+        if (this.deathKind === 'wasted' && !p.ragdoll) {
             const f = Math.min(1, this.deathT * 2.5);
             p.person.root.rotation.set(0, p.yaw + Math.PI / 2, 0, 'YXZ');
             p.person.root.rotateX(-f * Math.PI / 2);
@@ -236,6 +244,7 @@ export class Game {
         this.money -= paid;
         const p = this.player;
         p.dead = false; p.health = p.maxHealth; p.armour = 0;
+        p.ragdoll = null;
         p.person.root.rotation.set(0, 0, 0);
         p.teleport(best.x + best.nx * 3, best.y + best.ny * 3, Math.atan2(best.ny, best.nx));
         this.cam.yaw = p.yaw; this.cam.pitch = 0.15;

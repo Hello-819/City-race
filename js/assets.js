@@ -102,6 +102,7 @@ export async function loadAssets(onProgress) {
         if (car.ao) jobs.push(['ao:' + car.id, car.ao]);
     }
     for (const k of Object.keys(KENNEY)) jobs.push(['kenney:' + k, 'assets/models/vehicles/kenney/' + k + '.glb']);
+    for (const k of QUATERNIUS) jobs.push(['qchar:' + k, 'assets/models/people/quaternius/' + k + '.glb']);
     jobs.push(['person:michelle', 'assets/models/people/michelle.glb'], ['person:man', 'assets/models/people/man.glb'], ['anims', 'assets/models/people/anims.glb']);
     // optional user-supplied traffic cars: assets/models/traffic/manifest.json
     try {
@@ -125,6 +126,7 @@ export async function loadAssets(onProgress) {
         const ok = (res) => { progress.set(key, 1); done++; report(); loaded[key] = res; resolve(); };
         if (key.startsWith('ao:')) texLoader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; ok(t); }, onProg, reject);
         else if (key === 'anims') loader.load(url, (g) => ok({ clips: g.animations, scene: g.scene }), onProg, reject);
+        else if (key.startsWith('qchar:')) loader.load(url, (g) => ok({ scene: g.scene, clips: g.animations }), onProg, () => { progress.set(key, 1); resolve(); });
         else if (key.startsWith('extra:')) loader.load(url, (g) => ok(g.scene), onProg, () => { progress.set(key, 1); resolve(); });
         else loader.load(url, (g) => ok(key.startsWith('lod:') ? bakeLod(g.scene, CARS[key.slice(4)]) : g.scene), onProg, reject);
     })));
@@ -599,11 +601,78 @@ function personClips(kind) {
     return out;
 }
 
+// Quaternius "Ultimate Modular" characters (CC0): own skeleton + 24 built-in
+// animations each, so they need no retargeting. m_ = men, w_ = women.
+export const QUATERNIUS = ['m_Adventurer', 'm_Farmer', 'm_Punk', 'm_Swat', 'm_Worker', 'w_Adventurer', 'w_Punk', 'w_Soldier', 'w_Suit', 'w_Worker'];
+export const CIVILIAN_KINDS = ['man', 'michelle', 'm_Adventurer', 'm_Farmer', 'm_Punk', 'm_Worker', 'w_Adventurer', 'w_Punk', 'w_Suit', 'w_Worker'];
+export const COP_KINDS = ['m_Swat', 'w_Soldier'];
+const Q_CLIPS = { Idle: 'Idle', Walk: 'Walk', Run: 'Run', GunIdle: 'Idle_Gun_Pointing', Shoot: 'Gun_Shoot', Hit: 'HitRecieve', Wave: 'Wave', Punch: 'Punch_Right' };
+// Quaternius bone names (after three.js strips the dots) -> Mixamo-style keys
+const Q_BONES = {
+    Hips: 'Hips', Chest: 'Chest', Spine2: 'Chest', Head: 'Head', Neck: 'Neck',
+    LeftArm: 'UpperArmL', LeftForeArm: 'LowerArmL', LeftHand: 'WristL', RightArm: 'UpperArmR', RightForeArm: 'LowerArmR', RightHand: 'WristR',
+    LeftUpLeg: 'UpperLegL', LeftLeg: 'LowerLegL', LeftFoot: 'FootL', RightUpLeg: 'UpperLegR', RightLeg: 'LowerLegR', RightFoot: 'FootR',
+};
+const KEEP_COLOUR = /skin|eye|brow|hair|moustache|beard|black|grey|white|teeth|mouth/i;
+
+function createQuaternius(rng, kind, opts) {
+    const src = loaded['qchar:' + kind];
+    const model = cloneSkinned(src.scene);
+    const root = new THREE.Group();
+    root.add(model);
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const h = box.max.y - box.min.y;
+    const sc = (kind[0] === 'w' ? 1.68 : 1.8) * rng.range(0.95, 1.05) / (h || 1);
+    model.scale.multiplyScalar(sc);
+    model.position.y = -box.min.y * sc;
+    // clothing colour variety: shift the hue of everything that isn't skin / eyes / hair
+    const hue = opts.hue ?? rng.range(-0.5, 0.5), light = rng.range(0.85, 1.2);
+    const cache = new Map();
+    model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.frustumCulled = false;
+        const tint = (m) => {
+            if (cache.has(m)) return cache.get(m);
+            const c = m.clone();
+            if (!KEEP_COLOUR.test(m.name) && !opts.noTint) {
+                const hsl = {}; c.color.getHSL(hsl);
+                c.color.setHSL((hsl.h + hue + 1) % 1, hsl.s, Math.min(0.9, hsl.l * light));
+            }
+            if (opts.tint && !KEEP_COLOUR.test(m.name)) c.color.lerp(new THREE.Color(opts.tint), 0.5);
+            cache.set(m, c);
+            return c;
+        };
+        o.material = Array.isArray(o.material) ? o.material.map(tint) : tint(o.material);
+    });
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = {};
+    for (const [name, clipName] of Object.entries(Q_CLIPS)) {
+        const clip = src.clips.find(c => c.name.endsWith('|' + clipName) || c.name === clipName);
+        if (!clip) continue;
+        actions[name] = mixer.clipAction(clip);
+        actions[name].play();
+        actions[name].setEffectiveWeight(name === 'Walk' ? 1 : 0);
+    }
+    if (actions.Walk) actions.Walk.time = rng.range(0, 1);
+    const raw = {};
+    model.traverse((o) => { if (o.isBone) raw[o.name.replace(/[.:]/g, '')] = o; });
+    const bones = {};
+    for (const [k, n] of Object.entries(Q_BONES)) if (raw[n]) bones[k] = raw[n];
+    // natural speeds of the clips (m/s) so feet don't slide
+    return { root, model, mixer, actions, kind, bones, walkSpeed: 1.6, runSpeed: 4.6, quaternius: true };
+}
+
 const OUTFIT = ['#2b3a55', '#5a2b2b', '#2f4a32', '#6b6b6b', '#1f1f22', '#7a5a3a', '#3b5d8a', '#8a3b5d', '#c9b48a', '#e0e0e0', '#4a3b6b'];
 
 // opts: { kind: 'man'|'michelle', top: '#rrggbb', bottom: '#rrggbb', tint: '#rrggbb' }
 export function createPerson(rng, opts = {}) {
-    const kind = opts.kind || (rng.chance(0.5) ? 'michelle' : 'man');
+    const kind = opts.kind || rng.pick(CIVILIAN_KINDS.filter(k => !QUATERNIUS.includes(k) || loaded['qchar:' + k]));
+    if (QUATERNIUS.includes(kind)) {
+        if (loaded['qchar:' + kind]) return createQuaternius(rng, kind, opts);
+        return createPerson(rng, { ...opts, kind: kind[0] === 'w' ? 'michelle' : 'man' });
+    }
     const src = loaded['person:' + kind];
     const model = cloneSkinned(src);
     const root = new THREE.Group();
@@ -648,5 +717,5 @@ export function createPerson(rng, opts = {}) {
     actions.Walk.time = rng.range(0, 1);
     const bones = {};
     model.traverse((o) => { if (o.isBone) bones[boneKey(o.name)] = o; });
-    return { root, model, mixer, actions, kind, bones };
+    return { root, model, mixer, actions, kind, bones, walkSpeed: 1.35, runSpeed: 3.9 };
 }

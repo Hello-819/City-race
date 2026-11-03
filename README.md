@@ -110,6 +110,8 @@ js/assets.js, textures.js  glTF car / people loading, canvas textures
 
 ## Credits
 
+- **Characters**: "Ultimate Modular Men / Women" packs by [Quaternius](https://quaternius.com), CC0 1.0.
+
 - **Vehicles**: [Car Kit](https://kenney.nl/assets/car-kit) by Kenney (www.kenney.nl), CC0 1.0.
   Scaled to real-world size, with glass, interiors and physics added in code.
 

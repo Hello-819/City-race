@@ -10,7 +10,8 @@
 // They can be shot, punched or run over (they fall and drop cash).
 // ============================================================================
 import * as THREE from 'three';
-import { createPerson } from '../assets.js';
+import { createPerson, COP_KINDS } from '../assets.js';
+import { Ragdoll } from './ragdoll.js';
 import { CONFIG } from '../config.js';
 import { Rng, clamp, damp } from '../core/rng.js';
 import { obbOverlap } from '../collide.js';
@@ -37,7 +38,8 @@ export class Peds {
 
     _make(cop, i) {
         const r = this.rng;
-        const opts = cop ? (i % 3 === 2 ? { kind: 'michelle', tint: '#3a4a7a' } : { kind: 'man', top: '#1c2a4a', bottom: '#151a28' }) : {};
+        // officers wear SWAT / tactical gear; civilians are any of the character models
+        const opts = cop ? { kind: COP_KINDS[i % COP_KINDS.length], noTint: true } : {};
         const person = createPerson(r, opts);
         person.root.visible = false;
         this.game.scene.add(person.root);
@@ -57,6 +59,7 @@ export class Peds {
         p.person.root.visible = true;
         p.person.root.rotation.set(0, 0, 0);
         p.fall = 0;
+        p.ragdoll = null;
         p.seen = false;
         this.active.push(p);
     }
@@ -138,12 +141,13 @@ export class Peds {
     }
 
     // Returns true if the ped died. by: 'player' | 'cop' | 'car' ...
-    damage(p, amount, by, hit = null) {
+    // impulse: optional three.js world velocity given to the ragdoll
+    damage(p, amount, by, hit = null, impulse = null) {
         if (p.dead) return false;
         p.health -= amount;
         const g = this.game;
         if (hit && !hit.punch) g.effects.blood(hit.x, hit.z, -hit.y);
-        if (p.health <= 0) { this._kill(p, by, hit); return true; }
+        if (p.health <= 0) { this._kill(p, by, hit, impulse); return true; }
         if (by === 'player') {
             if (p.armed) p.state = PED.FIGHT;
             else this._flee(p, g.player.x, g.player.y);
@@ -152,15 +156,19 @@ export class Peds {
         return false;
     }
 
-    _kill(p, by, hit) {
+    _kill(p, by, hit, impulse = null) {
         const g = this.game;
         p.dead = true; p.state = PED.DEAD; p.deadT = 0;
         p.gun.visible = false;
         // fall away from the shooter
         const ax = hit ? p.x - g.player.x : Math.cos(p.yaw), ay = hit ? p.y - g.player.y : Math.sin(p.yaw);
         p.fallDir = Math.atan2(ay, ax);
-        for (const a of Object.values(p.person.actions)) a.setEffectiveWeight(0);
-        p.person.actions.Idle.setEffectiveWeight(1);
+        // ragdoll: knocked away from the attacker (bullets push gently, cars and blasts hard)
+        if (!impulse) { const l = Math.hypot(ax, ay) || 1; impulse = new THREE.Vector3(ax / l * 2.5, 0.8, -ay / l * 2.5); }
+        const map = g.activeMap || g.map;
+        p.person.mixer.update(0);
+        p.ragdoll = new Ragdoll(p.person, impulse, (x, z) => map.surfaceAt(x, -z).h, map);
+        if (!p.ragdoll.ok) p.ragdoll = null;
         if (by === 'player' || by === 'playerCar') {
             g.crime(p.cop ? 'copKilled' : 'pedKilled', p.x, p.y);
             g.save.stats.kills++;
@@ -271,7 +279,7 @@ export class Peds {
         if (hit) {
             const dmg = p.cop ? P.damage[Math.max(1, stars)] : 10;
             if (player.vehicle) { player.vehicle.damage(dmg * 2, 'npc'); if (Math.random() < 0.3) g.hurtPlayer(dmg * 0.5); }
-            else g.hurtPlayer(dmg);
+            else g.hurtPlayer(dmg, new THREE.Vector3(Math.cos(p.yaw) * 3, 0.8, -Math.sin(p.yaw) * 3));
         }
     }
 
@@ -307,7 +315,8 @@ export class Peds {
             if (!hit) continue;
             p.x += hit.nx * (hit.depth + 0.2); p.y += hit.ny * (hit.depth + 0.2);
             const byPlayer = ve.driver === 'player';
-            const killed = this.damage(p, sp * 9, byPlayer ? 'playerCar' : 'car', null);
+            const imp = new THREE.Vector3(v.vx * 0.9, 2.5 + sp * 0.15, -v.vy * 0.9);
+            const killed = this.damage(p, sp * 9, byPlayer ? 'playerCar' : 'car', null, imp);
             if (killed) { g.effects.blood(p.x, p.z + 1, -p.y); p.fallDir = Math.atan2(v.vy, v.vx); }
             if (byPlayer) { g.audio.impact(5); if (!killed) g.crime('assault', p.x, p.y); else if (!p.cop) g.crime('pedKilled', p.x, p.y); }
             else if (!killed) this._flee(p, ve.x, ve.y);
@@ -319,6 +328,7 @@ export class Peds {
     // Skinned animation, cheaper for distant peds.
     _pose(p, dt, dist) {
         const per = p.person;
+        if (p.dead && p.ragdoll) { if (dist < 150) p.ragdoll.update(dt); return; }
         per.root.position.set(p.x, p.z, -p.y);
         if (p.dead) {
             // tip over and lie flat
@@ -329,13 +339,16 @@ export class Peds {
             return;
         }
         per.root.rotation.set(0, p.yaw + Math.PI / 2, 0);
-        const anim = p.state === PED.CALL || p.speed < 0.3 ? 'Idle' : p.speed < 2.5 ? 'Walk' : 'Run';
+        const A = per.actions;
+        let anim = p.speed < 0.3 ? 'Idle' : p.speed < 2.5 ? 'Walk' : 'Run';
+        if (p.state === PED.CALL) anim = A.Wave ? 'Wave' : 'Idle';                       // on the phone
+        else if (p.state === PED.FIGHT && p.armed && p.speed < 0.6 && A.GunIdle) anim = 'GunIdle';
         for (const [n, a] of Object.entries(per.actions)) {
             const w = a.getEffectiveWeight();
             a.setEffectiveWeight(n === anim ? Math.min(1, w + dt * 5) : Math.max(0, w - dt * 5));
         }
-        per.actions.Walk.timeScale = Math.max(0.6, p.speed / 1.35);
-        per.actions.Run.timeScale = Math.max(0.8, p.speed / 3.9);
+        A.Walk.timeScale = Math.max(0.6, p.speed / per.walkSpeed);
+        A.Run.timeScale = Math.max(0.8, p.speed / per.runSpeed);
         const every = dist < 50 ? 1 : dist < 100 ? 2 : 4;
         if (this.frame % every === 0) per.mixer.update(dt * every);
         // gun in hand while fighting

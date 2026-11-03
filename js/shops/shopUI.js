@@ -87,7 +87,7 @@ export class ShopUI {
             const cur = g.save.outfitId || 'default';
             for (const o of S.outfits) {
                 const have = owned.includes(o.id);
-                row(o.name, o.kind === 'michelle' ? 'Character: Michelle' : 'Character: Alex', have ? null : o.price, cur === o.id ? 'Wearing' : have ? 'Wear' : 'Buy', () => {
+                row(o.name, 'Character outfit', have ? null : o.price, cur === o.id ? 'Wearing' : have ? 'Wear' : 'Buy', () => {
                     if (!have && !this.pay(o.price)) return;
                     if (!have) owned.push(o.id);
                     g.setOutfit(o);

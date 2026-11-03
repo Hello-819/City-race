@@ -175,14 +175,20 @@ export const CONFIG = {
         },
         // clothing store outfits (kind: character model; top / bottom colours)
         outfits: [
-            { id: 'default', name: 'Street Casual', price: 0, kind: 'man', top: '#2b3a55', bottom: '#1f1f22' },
-            { id: 'red', name: 'Red Bomber', price: 250, kind: 'man', top: '#9a1c1c', bottom: '#202020' },
-            { id: 'olive', name: 'Olive Field', price: 300, kind: 'man', top: '#4b5a2a', bottom: '#3a3226' },
-            { id: 'white', name: 'Summer Whites', price: 400, kind: 'man', top: '#e8e6df', bottom: '#cfc8b4' },
-            { id: 'violet', name: 'Night Out', price: 600, kind: 'man', top: '#4a2a6b', bottom: '#141414' },
-            { id: 'gold', name: 'High Roller', price: 2500, kind: 'man', top: '#c9a227', bottom: '#111111' },
-            { id: 'michelle', name: 'Michelle (classic)', price: 800, kind: 'michelle', tint: '#ffffff' },
-            { id: 'michelle-blue', name: 'Michelle (denim)', price: 900, kind: 'michelle', tint: '#8fb0ff' },
+            // kind = character model (man / michelle / Quaternius characters);
+            // top / bottom recolour Alex's clothes, tint recolours the others.
+            { id: 'default', name: 'Alex · street casual', price: 0, kind: 'man', top: '#2b3a55', bottom: '#1f1f22' },
+            { id: 'red', name: 'Alex · red bomber', price: 250, kind: 'man', top: '#9a1c1c', bottom: '#202020' },
+            { id: 'white', name: 'Alex · summer whites', price: 400, kind: 'man', top: '#e8e6df', bottom: '#cfc8b4' },
+            { id: 'gold', name: 'Alex · high roller', price: 2500, kind: 'man', top: '#c9a227', bottom: '#111111' },
+            { id: 'michelle', name: 'Michelle · classic', price: 800, kind: 'michelle', tint: '#ffffff' },
+            { id: 'worker', name: 'Hi-vis worker', price: 300, kind: 'm_Worker', noTint: true },
+            { id: 'punk', name: 'Punk', price: 600, kind: 'm_Punk', noTint: true },
+            { id: 'adventurer', name: 'Adventurer', price: 900, kind: 'm_Adventurer', noTint: true },
+            { id: 'farmer', name: 'Farmer', price: 350, kind: 'm_Farmer', noTint: true },
+            { id: 'w-suit', name: 'Business suit', price: 1500, kind: 'w_Suit', noTint: true },
+            { id: 'w-punk', name: 'Punk (women)', price: 600, kind: 'w_Punk', noTint: true },
+            { id: 'w-adventurer', name: 'Explorer', price: 900, kind: 'w_Adventurer', noTint: true },
         ],
         convenience: [
             { id: 'snack', name: 'Snack bar', desc: '+25 health', price: 10, health: 25 },

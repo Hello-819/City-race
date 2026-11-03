@@ -6,6 +6,8 @@ import { createPerson } from '../assets.js';
 import { CONFIG } from '../config.js';
 import { Rng, clamp, damp } from '../core/rng.js';
 import { obbOverlap } from '../collide.js';
+import { pointBone, twoBoneIK } from '../core/bones.js';
+import { Ragdoll } from '../npc/ragdoll.js';
 
 const P = CONFIG.player;
 const _surf = {}, _cols = { boxes: [], circles: [] };
@@ -31,6 +33,7 @@ export class Player {
     setOutfit(outfit) {
         if (this.person) this.world.scene.remove(this.person.root);
         this.outfit = { kind: 'man', top: '#2b3a55', bottom: '#1f1f22', ...outfit };
+        this.ragdoll = null;
         this.person = createPerson(new Rng(7), this.outfit);
         this.person.anim = 'Idle';
         for (const [n, a] of Object.entries(this.person.actions)) a.setEffectiveWeight(n === 'Idle' ? 1 : 0);
@@ -135,6 +138,7 @@ export class Player {
     // pose the skinned model and blend Idle / Walk / Run
     _sync(dt) {
         const p = this.person;
+        if (this.ragdoll) { this.ragdoll.update(dt); return; }
         p.root.position.set(this.x, this.z, -this.y);
         p.root.rotation.set(0, this.yaw + Math.PI / 2, 0);
         if (this.dead) return;
@@ -146,8 +150,8 @@ export class Player {
             const w = a.getEffectiveWeight();
             a.setEffectiveWeight(n === p.anim ? Math.min(1, w + dt * 6) : Math.max(0, w - dt * 6));
         }
-        p.actions.Walk.timeScale = Math.max(0.6, sp / 1.35);
-        p.actions.Run.timeScale = Math.max(0.8, sp / 3.9);
+        p.actions.Walk.timeScale = Math.max(0.6, sp / p.walkSpeed);
+        p.actions.Run.timeScale = Math.max(0.8, sp / p.runSpeed);
         p.mixer.update(dt);
         if (this._armDir) this._applyArms();
     }
@@ -216,45 +220,20 @@ export class Player {
         if (this.health <= 0) { this.health = 0; this.dead = true; }
     }
 
+    // Go limp: hand the body over to the ragdoll (impulse = three.js world vector).
+    startRagdoll(impulse) {
+        const map = this.world.map;
+        this.person.mixer.update(0);
+        this.ragdoll = new Ragdoll(this.person, impulse, (x, z) => map.surfaceAt(x, -z).h, map);
+        if (!this.ragdoll.ok) this.ragdoll = null;
+    }
+
     heal(amount) { this.health = Math.min(this.maxHealth, this.health + amount); }
 
     dispose() { this.world.scene.remove(this.person.root); }
 }
 
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
-const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qp = new THREE.Quaternion();
-// Rotate `bone` (in world space) so the direction towards `child` matches `dir`.
-function pointBone(bone, child, dir) {
-    bone.updateWorldMatrix(true, true);
-    bone.getWorldPosition(_a); child.getWorldPosition(_b);
-    _d.subVectors(_b, _a).normalize();
-    _qa.setFromUnitVectors(_d, dir);
-    bone.getWorldQuaternion(_qb);
-    _qb.premultiply(_qa);
-    bone.parent.getWorldQuaternion(_qp);
-    bone.quaternion.copy(_qp.invert().multiply(_qb));
-    bone.updateWorldMatrix(false, true);
-}
-
-// Two-bone IK: place `hand` at `target` bending the elbow downwards.
-const _s = new THREE.Vector3(), _e = new THREE.Vector3(), _h = new THREE.Vector3(), _axis = new THREE.Vector3(), _dn = new THREE.Vector3(0, -1, 0);
-function twoBoneIK(upper, fore, hand, tgt) {
-    const target = tgt.clone();   // pointBone() reuses the scratch vectors
-    upper.updateWorldMatrix(true, true);
-    upper.getWorldPosition(_s); fore.getWorldPosition(_e); hand.getWorldPosition(_h);
-    const a = _s.distanceTo(_e), b = _e.distanceTo(_h);
-    const toT = _c.subVectors(target, _s);
-    const d = Math.min(toT.length(), a + b - 1e-3);
-    toT.normalize();
-    const cosA = Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d)));
-    _axis.crossVectors(toT, _dn);
-    if (_axis.lengthSq() < 1e-6) _axis.set(1, 0, 0);
-    _axis.normalize();
-    const upDir = _d.copy(toT).applyAxisAngle(_axis, -Math.acos(cosA));
-    pointBone(upper, fore, upDir.clone());
-    fore.getWorldPosition(_e);
-    pointBone(fore, hand, _c.subVectors(target, _e).normalize().clone());
-}
+const _a = new THREE.Vector3(), _c = new THREE.Vector3();
 
 function turn(a, b, rate, dt) {
     let d = b - a; d = Math.atan2(Math.sin(d), Math.cos(d));
