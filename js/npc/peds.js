@@ -117,6 +117,17 @@ export class Peds {
         return p;
     }
 
+    // Armed gang member for missions: fights until killed, never wanders off.
+    spawnHostile(x, y) {
+        const p = this.pool.find(q => !q.active);
+        if (!p) return null;
+        this._activate(p, x, y);
+        p.armed = true; p.hostile = true;
+        p.health = 140;
+        p.state = PED.FIGHT;
+        return p;
+    }
+
     get copsActive() { return this.active.filter(p => p.cop && !p.dead); }
 
     // ------------------------------------------------------------- reactions
@@ -192,7 +203,7 @@ export class Peds {
         for (let i = this.active.length - 1; i >= 0; i--) {
             const p = this.active[i];
             const dist = Math.hypot(p.x - pos.x, p.y - pos.y);
-            if (dist > N.despawn + (p.cop ? 80 : 0) || (p.dead && p.deadT > 40)) { this._release(p); continue; }
+            if ((dist > N.despawn + (p.cop ? 80 : 0) && !(p.hostile && !p.dead && dist < 800)) || (p.dead && p.deadT > 40)) { this._release(p); continue; }
             this._think(p, dt, dist);
             this._hitByCars(p);
             this._pose(p, dt, dist);
@@ -236,7 +247,7 @@ export class Peds {
             case PED.FIGHT: {
                 const tp = player.position;
                 const dx = tp.x - p.x, dy = tp.y - p.y, d = Math.hypot(dx, dy);
-                if (player.dead || (!p.cop && g.police.stars === 0 && p.calm > 20)) { this._flee(p, tp.x, tp.y); break; }
+                if (player.dead || (!p.cop && !p.hostile && g.police.stars === 0 && p.calm > 20)) { this._flee(p, tp.x, tp.y); break; }
                 p.calm = (p.calm || 0) + dt;
                 const pz = player.vehicle ? player.vehicle.veh.z + 1 : player.z + 1.3;
                 const see = d < (p.cop ? CONFIG.police.sightRange : 40) && lineOfSight(g.map, p.x, p.y, p.z + 1.5, tp.x, tp.y, pz);

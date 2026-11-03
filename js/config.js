@@ -214,6 +214,11 @@ export const CONFIG = {
             { id: 'vest', name: 'Light armour', desc: '+50 armour', price: 150, armour: 50 },
             { id: 'heavy', name: 'Heavy armour', desc: 'Full armour', price: 280, armour: 100 },
         ],
+        hospital: [
+            { id: 'patch', name: 'Patch up', desc: '+50 health', price: 40, health: 50 },
+            { id: 'treat', name: 'Full treatment', desc: 'Full health', price: 120, health: 100 },
+            { id: 'trauma', name: 'Trauma kit', desc: 'Full health + 50 armour', price: 350, health: 100, armour: 50 },
+        ],
         cafe: [
             { id: 'coffee', name: 'Coffee', desc: '+15 health', price: 5, health: 15 },
             { id: 'sandwich', name: 'Club sandwich', desc: '+40 health', price: 15, health: 40 },

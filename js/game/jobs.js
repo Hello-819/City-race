@@ -101,7 +101,7 @@ export class Jobs {
             }
             if (b.mesh) b.mesh.visible = near;
         }
-        if (!this.job && !g.player.vehicle && input.actHit('interact')) {
+        if (!this.job && !g.player.vehicle && !(g.missions && g.missions.active) && input.actHit('interact')) {
             const b = this.boards.find(bb => Math.hypot(bb.x - pos.x, bb.y - pos.y) < 1.8);
             if (b) this._startJob(b);
         }

@@ -94,7 +94,7 @@ export class ShopUI {
                     this.msg(`Now wearing ${o.name}.`);
                 }, { disabled: cur === o.id, swatch: o.top || o.tint, owned: have });
             }
-        } else if (type === 'convenience' || type === 'cafe') {
+        } else if (type === 'convenience' || type === 'cafe' || type === 'hospital') {
             for (const it of S[type]) {
                 const full = (it.health && g.player.health >= g.player.maxHealth) && !it.armour || (it.armour && g.player.armour >= 100);
                 row(it.name, it.desc, it.price, 'Buy', () => {

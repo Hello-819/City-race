@@ -30,6 +30,7 @@ import { Peds } from '../npc/peds.js';
 import { Police } from '../npc/police.js';
 import { Pickups } from './pickups.js';
 import { Jobs } from './jobs.js';
+import { Missions } from './missions.js';
 import { Traffic } from '../vehicles/traffic.js';
 import { Interiors } from '../shops/interiors.js';
 import { ShopUI } from '../shops/shopUI.js';
@@ -66,7 +67,8 @@ export class Game {
         this.jobs = new Jobs(this);
         this.personalCar = null;
         this.traffic = new Traffic(this);
-        this.extraBlips = () => [...this.jobs.blips(), ...this.traffic.blips()];
+        this.missions = new Missions(this);
+        this.extraBlips = () => [...this.jobs.blips(), ...this.traffic.blips(), ...this.missions.blips()];
         this.doorPrompt = (b) => this.interiors.prompt(b);
         this.timeScale = 1;
         this.time = 0;
@@ -430,6 +432,7 @@ export class Game {
         this.police.update(dt);
         this.pickups.update(dt);
         this.jobs.update(dt);
+        this.missions.update(dt);
         if (this.deathT > 0) this._updateDeath(rawDt);
 
         // --- camera ---
@@ -509,7 +512,7 @@ export class Game {
         const p = this.player;
         if (p.vehicle || p.dead) { this.hud.prompt(''); return; }
         const v = p.nearestVehicle(this.vehicles);
-        const jp = this.jobs.prompt();
+        const jp = this.missions.prompt() || this.jobs.prompt();
         if (jp) { this.hud.prompt(jp); return; }
         if (v) { this.hud.prompt(`<kbd>F</kbd> ${v.driver && v.driver !== 'player' ? 'Steal' : 'Enter'} ${v.info.name || 'vehicle'}`); return; }
         for (const b of this.specialBlips) {
@@ -581,6 +584,7 @@ export class Game {
         this.fx.dispose();
         this.pickups.dispose();
         this.jobs.dispose();
+        this.missions.dispose();
         this.traffic.dispose();
         this.peds.dispose();
         this.weapons.dispose();
