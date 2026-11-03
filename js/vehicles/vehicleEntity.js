@@ -188,6 +188,11 @@ export class VehicleEntity {
             if (w.front) w.steer.rotation.y = v.steer;
         }
         if (rig.steering) rig.steering.pivot.quaternion.setFromAxisAngle(rig.steering.axis, v.steer * 9);
+        if (rig.driverFigure) {
+            // someone at the wheel (hidden in the player's own cockpit view)
+            const g = this.world.game;
+            rig.driverFigure.visible = !!this.driver && this.alive && !(this.driver === 'player' && g && g.cam.rig.current === 'cockpit');
+        }
         const brake = v.brake > 0.05 || v.handbrake > 0;
         const tail = (this.lightsOn ? 1.0 : 0.25) + (brake && this.driver ? 3.0 : 0);
         for (const m of rig.mats.tail) m.emissiveIntensity = tail;

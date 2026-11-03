@@ -110,6 +110,9 @@ js/assets.js, textures.js  glTF car / people loading, canvas textures
 
 ## Credits
 
+- **Vehicles**: [Car Kit](https://kenney.nl/assets/car-kit) by Kenney (www.kenney.nl), CC0 1.0.
+  Scaled to real-world size, with glass, interiors and physics added in code.
+
 - **Ferrari 458 Italia** model by [vicent091036](https://sketchfab.com/vicent091036)
   ([Sketchfab](https://skfb.ly/6o8yK)), as distributed with the three.js examples.
   The traffic version (`ferrari_lod.glb`) is a simplified derivative.

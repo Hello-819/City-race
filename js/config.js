@@ -81,25 +81,33 @@ export const CONFIG = {
     // glTF model id ('ferrari', 'concept'). hp/mass drive the physics,
     // health = damage before it catches fire and explodes, price = dealership.
     vehicles: {
-        hatch: { name: 'Brio Hatch', body: 'hatch', hp: 105, mass: 1050, health: 900, price: 9000 },
-        compact: { name: 'Pico City', body: 'compact', hp: 80, mass: 900, health: 800, price: 6500 },
-        saloon: { name: 'Meridian Saloon', body: 'saloon', hp: 150, mass: 1400, health: 1000, price: 16000 },
-        estate: { name: 'Voyager Estate', body: 'estate', hp: 140, mass: 1500, health: 1000, price: 15000 },
-        coupe: { name: 'Strada Coupe', body: 'coupe', hp: 190, mass: 1300, health: 900, price: 22000 },
+        // body: a Kenney Car Kit model (assets/models/vehicles/kenney/<body>.glb),
+        // or 'ferrari' / 'concept' for the two detailed glTF supercars.
+        // fixedColor keeps the model's own livery; paintMaterial limits
+        // recolouring to one paint material on two-tone models.
+        hatch: { name: 'Brio Hatch', body: 'hatchbackSports', hp: 120, mass: 1100, health: 900, price: 9000 },
+        saloon: { name: 'Meridian Saloon', body: 'sedan', hp: 150, mass: 1400, health: 1000, price: 16000 },
+        coupe: { name: 'Strada GT', body: 'sedanSports', hp: 230, mass: 1350, health: 950, price: 26000 },
         suv: { name: 'Ridge SUV', body: 'suv', hp: 230, mass: 2100, health: 1300, price: 30000 },
-        pickup: { name: 'Mule Pickup', body: 'pickup', hp: 210, mass: 2000, health: 1300, price: 21000 },
+        suvLuxury: { name: 'Ridge Luxe', body: 'suvLuxury', hp: 300, mass: 2250, health: 1350, price: 48000 },
+        pickup: { name: 'Mule Pickup', body: 'truck', hp: 210, mass: 2000, health: 1300, price: 21000 },
+        flatbed: { name: 'Mule Flatbed', body: 'truckFlat', hp: 220, mass: 2300, health: 1400, price: 24000 },
         van: { name: 'Courier Van', body: 'van', hp: 130, mass: 2300, health: 1300, price: 18000 },
-        minivan: { name: 'Family Mover', body: 'minivan', hp: 160, mass: 1800, health: 1100, price: 19000 },
-        boxtruck: { name: 'Box Truck', body: 'boxtruck', hp: 220, mass: 5500, health: 2000, price: 35000 },
-        taxi: { name: 'Taxi', body: 'saloon', hp: 150, mass: 1400, health: 1000, price: 14000, livery: 'taxi' },
-        bus: { name: 'City Bus', body: 'bus', hp: 300, mass: 11000, health: 3000, price: 60000 },
-        limo: { name: 'Stretch Limo', body: 'limo', hp: 250, mass: 2600, health: 1400, price: 45000 },
+        boxtruck: { name: 'Box Truck', body: 'delivery', hp: 220, mass: 5500, health: 2000, price: 35000, paintMaterial: 'paintGreen' },
+        lorry: { name: 'Flatbed Lorry', body: 'deliveryFlat', hp: 240, mass: 6000, health: 2100, price: 38000, paintMaterial: 'paintGreen' },
+        taxi: { name: 'Taxi', body: 'taxi', hp: 150, mass: 1400, health: 1000, price: 14000, fixedColor: true },
+        ambulance: { name: 'Ambulance', body: 'ambulance', hp: 260, mass: 3500, health: 1800, price: 0, fixedColor: true, notForSale: true },
+        firetruck: { name: 'Fire Engine', body: 'firetruck', hp: 380, mass: 12000, health: 3500, price: 0, fixedColor: true, notForSale: true },
+        tractor: { name: 'Field Tractor', body: 'tractor', hp: 110, mass: 3200, health: 1600, price: 12000 },
+        digger: { name: 'Digger', body: 'tractorShovel', hp: 140, mass: 5200, health: 2200, price: 0, notForSale: true },
         // rare / special
         sports: { name: 'Concept GT', body: 'concept', health: 1000, price: 120000, rare: true },
         supercar: { name: 'Ferrari 458 Italia', body: 'ferrari', health: 1000, price: 250000, rare: true },
-        classic: { name: 'Vintage Roadster', body: 'classic', hp: 180, mass: 1100, health: 900, price: 85000, rare: true },
-        policeInterceptor: { name: 'Police Interceptor', body: 'saloon', hp: 380, mass: 1600, health: 1600, price: 0, livery: 'police', rare: true, notForSale: true },
-        police: { name: 'Police Cruiser', body: 'saloon', hp: 300, mass: 1600, health: 1500, livery: 'police', notForSale: true },
+        classic: { name: 'Vintage Racer', body: 'race', hp: 260, mass: 1000, health: 900, price: 85000, rare: true },
+        prototype: { name: 'Apex Prototype', body: 'raceFuture', hp: 520, mass: 1050, health: 1000, price: 180000, rare: true },
+        policeInterceptor: { name: 'Police Interceptor', body: 'police', hp: 380, mass: 1600, health: 1600, price: 0, rare: true, notForSale: true, fixedColor: true, livery: 'police' },
+        police: { name: 'Police Cruiser', body: 'police', hp: 320, mass: 1600, health: 1500, fixedColor: true, livery: 'police', notForSale: true },
+        policeTractor: { name: 'Police Tractor', body: 'tractorPolice', hp: 140, mass: 3200, health: 1600, fixedColor: true, livery: 'police', notForSale: true },
     },
 
     // ------------------------------------------------------------------------
@@ -111,9 +119,11 @@ export const CONFIG = {
         despawnRadius: 300,
         minGap: 14,                    // don't spawn closer than this to another car
         // relative weights of the normal civilian models
-        weights: { hatch: 14, compact: 10, saloon: 16, estate: 8, coupe: 6, suv: 10, pickup: 7, van: 7, minivan: 7, boxtruck: 4, taxi: 9, bus: 3, limo: 1 },
+        weights: { hatch: 14, saloon: 18, coupe: 6, suv: 10, suvLuxury: 5, pickup: 8, flatbed: 4, van: 8, boxtruck: 5, lorry: 3, taxi: 10, ambulance: 1.2, firetruck: 0.6 },
+        // extra weights used out in the countryside
+        countryWeights: { tractor: 6, digger: 2, pickup: 6, flatbed: 4 },
         // rare cars: independent chance PER SPAWN (rolled before the normal pick)
-        rare: { supercar: 1 / 200, sports: 1 / 50, classic: 1 / 120, policeInterceptor: 1 / 150 },
+        rare: { supercar: 1 / 200, sports: 1 / 50, classic: 1 / 120, prototype: 1 / 300, policeInterceptor: 1 / 150 },
         rareGlow: true,                // glowing ring + floating label on rare cars
         rareNotify: true,              // HUD message when one spawns nearby
         honkChance: 0.5,
@@ -186,7 +196,7 @@ export const CONFIG = {
             { id: 'meal', name: 'Full breakfast', desc: 'Full health', price: 40, health: 100 },
         ],
         // vehicles the dealership sells (prices come from CONFIG.vehicles)
-        dealership: ['compact', 'hatch', 'saloon', 'estate', 'coupe', 'minivan', 'suv', 'pickup', 'van', 'limo', 'classic', 'sports', 'supercar'],
+        dealership: ['hatch', 'saloon', 'coupe', 'suv', 'suvLuxury', 'pickup', 'flatbed', 'van', 'boxtruck', 'tractor', 'classic', 'sports', 'prototype', 'supercar'],
         garageSlots: 8,
     },
 

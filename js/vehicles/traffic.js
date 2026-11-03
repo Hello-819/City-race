@@ -53,10 +53,13 @@ export class Traffic {
         };
     }
 
-    pickModel() {
+    // country = true mixes in tractors and work trucks
+    pickModel(country = false) {
         for (const [m, p] of Object.entries(T.rare)) if (Math.random() < p) return m;
-        let r = Math.random() * this._wsum;
-        for (const [m, w] of this._weights) { r -= w; if (r <= 0) return m; }
+        const list = country ? [...this._weights, ...Object.entries(T.countryWeights)] : this._weights;
+        const sum = list.reduce((a, [, w]) => a + w, 0);
+        let r = Math.random() * sum;
+        for (const [m, w] of list) { r -= w; if (r <= 0) return m; }
         return 'saloon';
     }
 
@@ -109,12 +112,12 @@ export class Traffic {
         if (map.surfaceAt(r.x, r.y).water > 0.1) return;
         if (r.s < map.nodes[e.a].half + 4 || r.s > e.len - map.nodes[e.b].half - 4) return;   // not inside junctions
         for (const v of g.vehicles) if (Math.abs(v.x - r.x) < T.minGap && Math.abs(v.y - r.y) < T.minGap) return;
-        const model = this.pickModel();
+        const model = this.pickModel(e.type === 'country');
         const v = this._take(model);
         const fwd = Math.random() < 0.5;
         const lane = Math.floor(Math.random() * e.lanes);
         const driver = new Driver(g, v, { mode: 'cruise', lane });
-        if (model === 'bus' || model === 'boxtruck') driver.speedFactor *= T.busSpeedFactor;
+        if ((CONFIG.vehicles[model].mass || 0) > 3000) driver.speedFactor *= T.busSpeedFactor;   // heavy vehicles are slower
         driver.placeOn(e, fwd, fwd ? r.s : e.len - r.s);
         g.addVehicle(v, driver);
         const rare = !!CONFIG.vehicles[model].rare;

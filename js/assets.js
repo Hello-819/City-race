@@ -73,7 +73,20 @@ const loaded = {};
 export const TRAFFIC_EXTRA = [];   // raw manifest entries from assets/models/traffic/manifest.json
 const EXTRA_SPECS = {};            // id -> car spec for user-supplied traffic models
 export const TRAFFIC_IDS = ['ferrari', 'concept'];
-const specOf = (id) => CARS[id] || EXTRA_SPECS[id];
+const specOf = (id) => CARS[id] || EXTRA_SPECS[id] || KENNEY_SPECS[id];
+
+// Kenney "Car Kit" (CC0) vehicles: real low-poly car models with separate
+// paint / window / light / tyre materials and wheel nodes. `len` is the real
+// length (m) each model is scaled to.
+export const KENNEY = {
+    // [length, width] in metres. Length sets a uniform scale (keeps wheels
+    // round); width then narrows the chunky toy proportions sideways only.
+    sedan: [4.6, 1.95], sedanSports: [4.5, 1.95], hatchbackSports: [4.0, 1.8], suv: [4.8, 2.05], suvLuxury: [4.9, 2.05],
+    taxi: [4.6, 1.95], police: [4.8, 2.0], van: [5.1, 2.1], truck: [5.3, 2.1], truckFlat: [5.6, 2.2],
+    delivery: [6.4, 2.4], deliveryFlat: [6.8, 2.4], ambulance: [6.0, 2.3], firetruck: [8.4, 2.6],
+    race: [4.3, 1.85], raceFuture: [4.6, 2.0], tractor: [3.9, 2.2], tractorPolice: [3.9, 2.2], tractorShovel: [5.4, 2.4],
+};
+const KENNEY_SPECS = {};
 
 export async function loadAssets(onProgress) {
     const draco = new DRACOLoader();
@@ -88,6 +101,7 @@ export async function loadAssets(onProgress) {
         jobs.push(['lod:' + car.id, car.lod]);
         if (car.ao) jobs.push(['ao:' + car.id, car.ao]);
     }
+    for (const k of Object.keys(KENNEY)) jobs.push(['kenney:' + k, 'assets/models/vehicles/kenney/' + k + '.glb']);
     jobs.push(['person:michelle', 'assets/models/people/michelle.glb'], ['person:man', 'assets/models/people/man.glb'], ['anims', 'assets/models/people/anims.glb']);
     // optional user-supplied traffic cars: assets/models/traffic/manifest.json
     try {
@@ -114,6 +128,27 @@ export async function loadAssets(onProgress) {
         else if (key.startsWith('extra:')) loader.load(url, (g) => ok(g.scene), onProg, () => { progress.set(key, 1); resolve(); });
         else loader.load(url, (g) => ok(key.startsWith('lod:') ? bakeLod(g.scene, CARS[key.slice(4)]) : g.scene), onProg, reject);
     })));
+    // Kenney cars: scale to real size and register a spec per model
+    for (const [k, [len, wid]] of Object.entries(KENNEY)) {
+        const scene = loaded['kenney:' + k];
+        if (!scene) continue;
+        const box = new THREE.Box3().setFromObject(scene);
+        const size = box.getSize(new THREE.Vector3());
+        const sideways = size.x > size.z;              // which local axis is the car's length
+        const s = len / Math.max(size.x, size.z);
+        const w = wid / ((sideways ? size.z : size.x) * s);
+        scene.scale.set(sideways ? s : s * w, s, sideways ? s * w : s);
+        scene.updateMatrixWorld(true);
+        const id = 'k_' + k;
+        KENNEY_SPECS[id] = {
+            id, name: k, kenney: true,
+            wheels: { fl: 'wheel_frontLeft', fr: 'wheel_frontRight', rl: 'wheel_backLeft', rr: 'wheel_backRight' },
+            hide: [], paint: /^paint/, glass: /^window$/, tail: /^lightBack$/, head: /^lightFront$/,
+            physics: CARS.concept.physics, eye: { up: 0.1, back: 0.5 }, defaultColor: null,
+        };
+        loaded['model:' + id] = scene;
+        loaded['lod:' + id] = scene;
+    }
     // register user-supplied traffic models
     for (const t of TRAFFIC_EXTRA) {
         const scene = loaded['extra:' + t.file];
@@ -296,7 +331,8 @@ function getBlobTexture() {
 }
 
 // Build a rig from a loaded scene. `lod` = cheap traffic version.
-export function createCar(id, { lod = false, color = null } = {}) {
+export function createCar(id, opts = {}) {
+    const { lod = false, color = null } = opts;
     const spec = specOf(id);
     const src = loaded[(lod ? 'lod:' : 'model:') + id];
     const scene = src.clone(true);
@@ -309,7 +345,7 @@ export function createCar(id, { lod = false, color = null } = {}) {
     for (const n of spec.hide) { const o = scene.getObjectByName(n); if (o) o.visible = false; }
 
     // --- materials ---
-    const mats = { paint: [], tail: [], head: [] };
+    const mats = { paint: [], tail: [], head: [], siren: [] };
     const paintColor = color || spec.defaultColor;
     const shared = new Map();
     scene.traverse((o) => {
@@ -322,7 +358,8 @@ export function createCar(id, { lod = false, color = null } = {}) {
             if (shared.has(m)) return shared.get(m);
             let r = m;
             const nm = m.name || '';
-            if (spec.paint.test(nm)) { r = makePaint(m, paintColor); mats.paint.push(r); }
+            if (spec.paint.test(nm) && (!opts.paintOnly || opts.paintOnly.test(nm))) { r = makePaint(m, paintColor || '#' + m.color.getHexString()); mats.paint.push(r); }
+            else if (spec.paint.test(nm)) { r = m.clone(); r.metalness = 0.4; r.roughness = 0.35; }
             else if (spec.glass.test(nm)) r = makeGlass();
             else if (spec.tail.test(nm)) {
                 r = new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a10, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.1, name: 'tail' });
@@ -330,6 +367,10 @@ export function createCar(id, { lod = false, color = null } = {}) {
             } else if (spec.head.test(nm)) {
                 r = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, emissive: 0xfff4e0, emissiveIntensity: 0, roughness: 0.05, metalness: 0.6, name: 'head' });
                 mats.head.push(r);
+            } else if (/^lightBlue$/.test(nm)) {
+                // police light bar: flashed by the police system
+                r = new THREE.MeshStandardMaterial({ color: 0x2050ff, emissive: 0x2a60ff, emissiveIntensity: 0.3, roughness: 0.3, name: 'siren' });
+                mats.siren.push(r);
             } else if (m.transmission > 0) {
                 r = makeGlass();
             } else if (!lod && /leather|interior|carpet|plastic|dashboard|panel|floormat/i.test(nm)) {

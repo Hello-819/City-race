@@ -104,9 +104,10 @@ export class Police {
             // flashing light bar
             const rig = u.car.rig;
             if (rig.siren) {
+                const on = this.stars > 0 && !u.leaving;
                 const ph = Math.floor(g.time * 6) % 2;
-                rig.siren.red.emissiveIntensity = this.stars > 0 && !u.leaving ? (ph ? 6 : 0.2) : 0.2;
-                rig.siren.blue.emissiveIntensity = this.stars > 0 && !u.leaving ? (ph ? 0.2 : 6) : 0.2;
+                for (const m of rig.siren.lights) m.emissiveIntensity = on ? (ph ? 7 : 0.3) : 0.3;
+                if (on) for (const m of rig.siren.tail) m.emissiveIntensity = ph ? 0.3 : 4;
             }
         }
         this.nearest = nearest;
