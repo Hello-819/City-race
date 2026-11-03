@@ -548,8 +548,9 @@ function personClips(kind) {
 
 const OUTFIT = ['#2b3a55', '#5a2b2b', '#2f4a32', '#6b6b6b', '#1f1f22', '#7a5a3a', '#3b5d8a', '#8a3b5d', '#c9b48a', '#e0e0e0', '#4a3b6b'];
 
-export function createPerson(rng) {
-    const kind = rng.chance(0.5) ? 'michelle' : 'man';
+// opts: { kind: 'man'|'michelle', top: '#rrggbb', bottom: '#rrggbb', tint: '#rrggbb' }
+export function createPerson(rng, opts = {}) {
+    const kind = opts.kind || (rng.chance(0.5) ? 'michelle' : 'man');
     const src = loaded['person:' + kind];
     const model = cloneSkinned(src);
     const root = new THREE.Group();
@@ -570,14 +571,15 @@ export function createPerson(rng) {
             const c = m.clone();
             if (kind === 'man' && /Outfit_(Top|Bottom)/.test(m.name)) {
                 // recolour clothing: keep the texture's shading, replace its hue
-                c.color.set(rng.pick(OUTFIT)).multiplyScalar(1.5);
+                const want = /Top/.test(m.name) ? opts.top : opts.bottom;
+                c.color.set(want || rng.pick(OUTFIT)).multiplyScalar(1.5);
                 c.onBeforeCompile = (sh) => {
                     sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>',
                         '#include <map_fragment>\n diffuseColor.rgb = diffuse * vec3(dot(diffuseColor.rgb / max(diffuse, vec3(0.001)), vec3(0.299, 0.587, 0.114))) * 1.6;');
                 };
                 c.customProgramCacheKey = () => 'outfit';
             }
-            else if (kind === 'michelle') c.color.multiplyScalar(rng.range(0.75, 1.05));
+            else if (kind === 'michelle') { if (opts.tint) c.color.set(opts.tint); else c.color.multiplyScalar(rng.range(0.75, 1.05)); }
             return c;
         };
         o.material = Array.isArray(o.material) ? o.material.map(tint) : tint(o.material);
@@ -591,5 +593,7 @@ export function createPerson(rng) {
         actions[name].setEffectiveWeight(name === 'Walk' ? 1 : 0);
     }
     actions.Walk.time = rng.range(0, 1);
-    return { root, model, mixer, actions, kind };
+    const bones = {};
+    model.traverse((o) => { if (o.isBone) bones[boneKey(o.name)] = o; });
+    return { root, model, mixer, actions, kind, bones };
 }

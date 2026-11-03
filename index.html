@@ -21,99 +21,32 @@
     <div id="loading" class="screen active">
         <div class="brand">CITY<span>RACE</span></div>
         <div class="bar"><div id="load-bar"></div></div>
-        <div id="load-text">Loading car models…</div>
+        <div id="load-text">Loading models…</div>
     </div>
 
+    <!-- Title menu: Start / Options / Quit only -->
     <div id="menu" class="screen">
-        <div class="menu-panel">
+        <div class="menu-panel title-menu">
             <div class="brand small">CITY<span>RACE</span></div>
-            <div class="subtitle">Endless procedural streets &amp; mountain passes</div>
+            <div class="subtitle">One island. One endless day and night.</div>
+            <button id="btn-start" class="primary">Start</button>
+            <button id="btn-settings" class="ghost">Options</button>
+            <button id="btn-quit-game" class="ghost">Quit</button>
+            <div id="save-info" class="hint"></div>
+        </div>
+    </div>
 
-            <div class="section">
-                <div class="label">Car</div>
-                <div id="car-list" class="cards"></div>
-                <div id="car-blurb" class="blurb"></div>
-                <div id="car-stats" class="stats"></div>
-            </div>
-
-            <div class="section">
-                <div class="label">Paint</div>
-                <div id="paints" class="swatches"></div>
-            </div>
-
-            <div class="section">
-                <div class="label">Location</div>
-                <div class="seg" data-key="kind">
-                    <button data-value="city" class="on">City</button>
-                    <button data-value="mountain">Mountain Pass</button>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">Time of day</div>
-                <div class="seg" data-key="time">
-                    <button data-value="day" class="on">Day</button>
-                    <button data-value="sunset">Sunset</button>
-                    <button data-value="night">Night</button>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">Mode</div>
-                <div class="seg" data-key="mode">
-                    <button data-value="timeattack" class="on">Time Attack</button>
-                    <button data-value="sprint">Sprint Race</button>
-                    <button data-value="free">Free Roam</button>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">AI rivals</div>
-                <div class="seg" data-key="rivals">
-                    <button data-value="0" class="on">Off</button>
-                    <button data-value="1">1</button>
-                    <button data-value="3">3</button>
-                    <button data-value="5">5</button>
-                </div>
-            </div>
-            <div class="section two">
-                <div>
-                    <div class="label">Police</div>
-                    <div class="seg" data-key="police"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
-                </div>
-                <div>
-                    <div class="label">Ghost</div>
-                    <div class="seg" data-key="ghost"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
-                </div>
-            </div>
-            <div class="section two">
-                <div>
-                    <div class="label">Pedestrians</div>
-                    <div class="seg" data-key="peds"><button data-value="on" class="on">On</button><button data-value="off">Off</button></div>
-                </div>
-                <div>
-                    <div class="label">Track</div>
-                    <div class="seg" data-key="track"><button data-value="random" class="on">Random</button><button data-value="daily">Daily</button></div>
-                </div>
-            </div>
-            <div class="section">
-                <div class="label">Traffic</div>
-                <div class="seg" data-key="traffic">
-                    <button data-value="0.5">Light</button>
-                    <button data-value="1" class="on">Normal</button>
-                    <button data-value="1.6">Heavy</button>
-                </div>
-            </div>
-
-            <button id="btn-start" class="primary">Start Race</button>
-            <div class="row-buttons">
-                <button id="btn-settings" class="ghost">Settings</button>
-                <button id="btn-controls" class="ghost">Controls</button>
-            </div>
-            <div id="best" class="best"></div>
+    <div id="quit-screen" class="screen">
+        <div class="menu-panel title-menu">
+            <div class="brand small">THANKS FOR<span>PLAYING</span></div>
+            <div class="subtitle">Your progress is saved. You can close this tab now.</div>
+            <button id="btn-unquit" class="ghost">Back to title</button>
         </div>
     </div>
 
     <div id="settings" class="screen modal">
         <div class="modal-box">
-            <h2>Settings</h2>
+            <h2>Options</h2>
             <div class="setting"><span>Graphics quality</span>
                 <div class="seg" data-key="quality">
                     <button data-value="low">Low</button>
@@ -127,31 +60,16 @@
                     <button data-value="mph">mph</button>
                 </div>
             </div>
-            <div class="setting"><span>Transmission</span>
-                <div class="seg" data-key="gearbox">
-                    <button data-value="auto" class="on">Automatic</button>
-                    <button data-value="manual">Manual</button>
+            <div class="setting"><span>Invert mouse Y</span>
+                <div class="seg" data-key="invertY">
+                    <button data-value="off" class="on">Off</button>
+                    <button data-value="on">On</button>
                 </div>
             </div>
-            <div class="setting"><span>Driving assists (TCS / ESC / ABS)</span>
-                <div class="seg" data-key="assists">
-                    <button data-value="on" class="on">On</button>
-                    <button data-value="off">Off</button>
-                </div>
-            </div>
-            <div class="setting"><span>Rear-view mirror</span>
-                <div class="seg" data-key="mirror">
-                    <button data-value="on" class="on">On</button>
-                    <button data-value="off">Off</button>
-                </div>
-            </div>
-            <div class="setting"><span>Speed effects</span>
-                <div class="seg" data-key="speedfx">
-                    <button data-value="on" class="on">On</button>
-                    <button data-value="off">Off</button>
-                </div>
-            </div>
+            <div class="setting"><span>Mouse sensitivity</span><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.05" value="1"></div>
             <div class="setting"><span>Volume</span><input id="volume" type="range" min="0" max="1" step="0.05" value="0.7"></div>
+            <button id="btn-controls" class="ghost">Controls</button>
+            <button id="btn-reset-save" class="ghost danger">Delete saved game</button>
             <button class="primary close">Done</button>
         </div>
     </div>
@@ -160,97 +78,75 @@
         <div class="modal-box">
             <h2>Controls</h2>
             <table class="keys">
-                <tr><td><kbd>W</kbd> / <kbd>↑</kbd></td><td>Throttle</td></tr>
-                <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>Brake / reverse (hold when stopped)</td></tr>
-                <tr><td><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></td><td>Steer</td></tr>
+                <tr><th colspan="2">On foot</th></tr>
+                <tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td>Move (hold <kbd>Shift</kbd> to sprint, <kbd>Space</kbd> jump)</td></tr>
+                <tr><td>Mouse</td><td>Look around (click the game to capture the mouse)</td></tr>
+                <tr><td>Right mouse</td><td>Aim</td></tr>
+                <tr><td>Left mouse</td><td>Shoot</td></tr>
+                <tr><td>Hold <kbd>Q</kbd> / <kbd>Tab</kbd></td><td>Weapon wheel (slows time; release to equip)</td></tr>
+                <tr><td>Mouse wheel</td><td>Next / previous weapon</td></tr>
+                <tr><td><kbd>R</kbd></td><td>Reload</td></tr>
+                <tr><td><kbd>E</kbd></td><td>Interact / enter doors / shop counter</td></tr>
+                <tr><th colspan="2">Vehicles</th></tr>
+                <tr><td><kbd>F</kbd></td><td>Enter / exit vehicle</td></tr>
+                <tr><td><kbd>W</kbd> <kbd>S</kbd></td><td>Throttle / brake &amp; reverse</td></tr>
+                <tr><td><kbd>A</kbd> <kbd>D</kbd></td><td>Steer</td></tr>
                 <tr><td><kbd>Space</kbd></td><td>Handbrake</td></tr>
-                <tr><td><kbd>C</kbd></td><td>Change camera (chase, far, cockpit, hood, bumper)</td></tr>
-                <tr><td><kbd>B</kbd></td><td>Look back</td></tr>
-                <tr><td>Mouse drag</td><td>Look around</td></tr>
-                <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Shift down / up (manual gearbox)</td></tr>
                 <tr><td><kbd>H</kbd></td><td>Horn</td></tr>
-                <tr><td><kbd>R</kbd></td><td>Reset car onto the road</td></tr>
-                <tr><td><kbd>V</kbd></td><td>Instant replay (last 45 s)</td></tr>
+                <tr><td><kbd>C</kbd> / <kbd>B</kbd></td><td>Change camera / look back</td></tr>
+                <tr><th colspan="2">General</th></tr>
+                <tr><td><kbd>M</kbd></td><td>Map</td></tr>
                 <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
+                <tr><td>Hold <kbd>T</kbd></td><td>Fast-forward time</td></tr>
             </table>
-            <p class="hint">Gamepads work too: triggers for throttle/brake, left stick to steer, A handbrake, Y camera.</p>
+            <p class="hint">Key bindings can be changed in <code>js/config.js</code> (CONFIG.keys).</p>
             <button class="primary close">Got it</button>
         </div>
     </div>
 
     <div id="hud">
-        <div class="hud-tl">
-            <div id="hud-time-label" class="hud-label">TIME LEFT</div>
-            <div id="hud-time" class="hud-big">0.0</div>
-            <div id="hud-dist" class="hud-small">0.00 km</div>
-        </div>
-        <div class="hud-tc">
-            <div id="hud-next" class="hud-small"></div>
-        </div>
+        <div id="notify"></div>
+        <div id="zone-name"></div>
         <div class="hud-tr">
-            <div class="hud-label">SCORE</div>
-            <div id="hud-score" class="hud-big">0</div>
-            <div id="hud-combo" class="combo"></div>
-            <div id="hud-pos" class="hud-pos"></div>
-            <div id="hud-wanted" class="wanted"></div>
-            <div id="hud-meter" class="meter-box"><div id="hud-meter-label"></div><div class="meter"><i id="hud-meter-bar"></i></div></div>
+            <div id="hud-clock"></div>
+            <div id="hud-money">$0</div>
+            <div id="hud-wanted"></div>
+            <div id="hud-weapon-box"><div id="hud-weapon"></div><div id="hud-ammo"></div></div>
         </div>
-        <canvas id="minimap" width="200" height="200"></canvas>
-        <canvas id="gauge" width="260" height="260"></canvas>
-        <div id="popups"></div>
-        <div id="toast"></div>
-        <div id="countdown"></div>
+        <div class="hud-bl">
+            <canvas id="radar" width="220" height="220"></canvas>
+            <div class="bars"><div class="bar-bg"><i id="bar-health"></i></div><div class="bar-bg armour"><i id="bar-armour"></i></div></div>
+        </div>
+        <div id="speedo"><div id="speedo-name"></div><span id="speedo-val">0</span> <span id="speedo-unit">km/h</span><div class="veh-bar"><i id="veh-health"></i></div></div>
+        <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
+        <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+        <div id="prompt"></div>
+        <div id="mission"></div>
+        <div id="bigmsg"></div>
     </div>
 
-    <div id="touch">
-        <div class="tc-left">
-            <button data-key="ArrowLeft" class="tc big">◀</button>
-            <button data-key="ArrowRight" class="tc big">▶</button>
-        </div>
-        <div class="tc-right">
-            <button data-key="Space" class="tc mid">HB</button>
-            <button data-key="ArrowDown" class="tc big brake">BRAKE</button>
-            <button data-key="ArrowUp" class="tc big gas">GAS</button>
-        </div>
-        <div class="tc-top">
-            <button data-key="KeyC" class="tc small">CAM</button>
-            <button data-key="KeyB" class="tc small">BACK</button>
-            <button data-key="KeyH" class="tc small">HORN</button>
-            <button data-key="KeyV" class="tc small">REPLAY</button>
-            <button data-key="Escape" class="tc small">II</button>
-        </div>
-    </div>
+    <div id="wheel"></div>
 
-    <div id="replay-ui">
-        <div class="replay-tag">REPLAY</div>
-        <div class="replay-bar"><div id="replay-progress"></div></div>
-        <div class="replay-buttons">
-            <button id="rp-restart" class="ghost">⏮</button>
-            <button id="rp-play" class="ghost">⏸</button>
-            <button id="rp-speed" class="ghost">1×</button>
-            <button id="rp-cam" class="ghost">Camera: auto</button>
-            <button id="rp-exit" class="ghost">Exit</button>
+    <!-- shop panel (gun shop, clothing, dealership/garage, 24/7, cafe) -->
+    <div id="shop" class="screen">
+        <div class="shop-box">
+            <div class="shop-head"><h2 id="shop-title">Shop</h2><div id="shop-money">$0</div></div>
+            <div id="shop-tabs"></div>
+            <div id="shop-list"></div>
+            <div id="shop-msg"></div>
+            <button id="shop-close" class="ghost">Close (Esc)</button>
         </div>
     </div>
+    <canvas id="fullmap"></canvas>
+    <div id="fade"></div>
 
     <div id="pause" class="screen modal">
         <div class="modal-box">
             <h2>Paused</h2>
             <button id="btn-resume" class="primary">Resume</button>
-            <button id="btn-pause-replay" class="ghost">Watch Replay</button>
-            <button id="btn-restart" class="ghost">Restart</button>
-            <button id="btn-pause-settings" class="ghost">Settings</button>
-            <button id="btn-quit" class="ghost">Main Menu</button>
-        </div>
-    </div>
-
-    <div id="results" class="screen modal">
-        <div class="modal-box">
-            <h2 id="results-title">Time's up!</h2>
-            <div id="results-body" class="results"></div>
-            <button id="btn-retry" class="primary">Race Again</button>
-            <button id="btn-results-replay" class="ghost">Watch Replay</button>
-            <button id="btn-menu" class="ghost">Main Menu</button>
+            <button id="btn-pause-settings" class="ghost">Options</button>
+            <button id="btn-pause-controls" class="ghost">Controls</button>
+            <button id="btn-quit" class="ghost">Save &amp; quit to title</button>
         </div>
     </div>
 
