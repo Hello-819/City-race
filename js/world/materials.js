@@ -31,6 +31,7 @@ export function worldMaterials() {
         trunk: std({ color: 0x5a4030, roughness: 1 }),
         leaves: std({ color: 0xffffff, roughness: 0.9 }),
         rock: std({ color: 0x7c776e, roughness: 1, flatShading: true }),
+        concrete: std({ map: concreteTexture(), color: 0xb8b4ac, roughness: 0.95, side: THREE.DoubleSide }),
         ocean: std({ color: 0x1b4a63, roughness: 0.1, metalness: 0.05, transparent: true, opacity: 0.86 }),
         farBuildings: null,
         facade: {},

@@ -104,9 +104,10 @@ export class Police {
             // flashing light bar
             const rig = u.car.rig;
             if (rig.siren) {
+                const on = this.stars > 0 && !u.leaving;
                 const ph = Math.floor(g.time * 6) % 2;
-                rig.siren.red.emissiveIntensity = this.stars > 0 && !u.leaving ? (ph ? 6 : 0.2) : 0.2;
-                rig.siren.blue.emissiveIntensity = this.stars > 0 && !u.leaving ? (ph ? 0.2 : 6) : 0.2;
+                for (const m of rig.siren.lights) m.emissiveIntensity = on ? (ph ? 7 : 0.3) : 0.3;
+                if (on) for (const m of rig.siren.tail) m.emissiveIntensity = ph ? 0.3 : 4;
             }
         }
         this.nearest = nearest;
@@ -133,7 +134,8 @@ export class Police {
             driver.target = pos;
             // face towards the player
             const e = r.edge;
-            const toward = (pos.x - r.x) * e.ux + (pos.y - r.y) * e.uy >= 0;
+            const tg = map.tangent(e, r.s);
+            const toward = (pos.x - r.x) * tg.x + (pos.y - r.y) * tg.y >= 0;
             driver.placeOn(e, toward, toward ? r.s : e.len - r.s);
             g.addVehicle(car, driver);
             this.units.push({ car, driver, deployed: false, officers: [], leaving: false });

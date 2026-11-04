@@ -11,6 +11,8 @@ const W = CONFIG.weapons;
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion();
 
 // --- simple gun models (boxes), barrel along -Z, grip at origin ------------
+const DRIVE_BY = ['pistol', 'smg'];
+
 export function gunModel(id) {
     const g = new THREE.Group();
     const metal = new THREE.MeshStandardMaterial({ color: 0x1d1f22, metalness: 0.7, roughness: 0.4 });
@@ -100,22 +102,29 @@ export class WeaponSystem {
             this.reloadT -= dt;
             if (this.reloadT <= 0) { const n = Math.min(d.clip - s.clip, s.reserve); s.clip += n; s.reserve -= n; }
         }
-        this.aiming = canAct && input.mouse.right && !d.melee;
-        player.aiming = this.aiming;
+        // drive-by: from a vehicle only one-handed guns (pistol / SMG) can be fired
+        const driveBy = !!player.vehicle;
+        const canFire = canAct && (!driveBy || DRIVE_BY.includes(this.current));
+        this.aiming = canAct && input.mouse.right && !d.melee && (!driveBy || canFire);
+        player.aiming = this.aiming && !driveBy;
+        if (driveBy && canAct && input.mouse.right && !canFire && !this.hintT) { game.hud.notify('Select the <b>pistol</b> or <b>SMG</b> (weapon wheel) to shoot from a vehicle.', 3); this.hintT = 4; }
+        this.hintT = Math.max(0, (this.hintT || 0) - dt);
         if (canAct) {
             if (input.wheel) this.cycle(input.wheel > 0 ? 1 : -1);
             if (input.actHit('reload')) this.startReload();
             const trigger = d.auto ? input.mouse.left : input.mouseHit(0);
-            if (trigger && this.cooldown <= 0 && this.reloadT <= 0) this.fire();
+            if (trigger && this.cooldown <= 0 && this.reloadT <= 0 && (!driveBy || (canFire && this.aiming))) this.fire();
         }
         this._updateModel();
+        if (driveBy) return { style: this.aiming ? 'aim' : null, spread: this.aiming ? this.spread() : 0 };
         if (d.melee) return { style: canAct ? 'dot' : null, spread: 0 };
         return { style: this.aiming ? (d.zoom ? 'aim sniper' : 'aim') : 'dot', spread: this.spread() };
     }
 
     spread() {
         const d = this.def;
-        const move = clamp(this.game.player.speed / 6, 0, 1);
+        const pv = this.game.player.vehicle;
+        const move = clamp((pv ? pv.veh.speed / 25 + 0.3 : this.game.player.speed / 6), 0, 1);
         return (this.aiming ? d.aimSpread : d.spread) + this.bloom + move * (d.spread * 0.6);
     }
 
@@ -127,7 +136,9 @@ export class WeaponSystem {
         s.clip--;
         const cam = game.cam, ray = cam.aimRay();
         // start the ray level with the player so nothing between camera and player is hit
-        const t0 = Math.max(0, (player.x - ray.ox) * ray.dx + (player.y - ray.oy) * ray.dy + (player.z + 1.4 - ray.oz) * ray.dz);
+        const pv = player.vehicle;
+        const bx = pv ? pv.x : player.x, by = pv ? pv.y : player.y, bz = pv ? pv.veh.z + 1.2 : player.z + 1.4;
+        const t0 = Math.max(0, (bx - ray.ox) * ray.dx + (by - ray.oy) * ray.dy + (bz - ray.oz) * ray.dz) + (pv ? pv.veh.P.halfLength : 0);
         const ox = ray.ox + ray.dx * t0, oy = ray.oy + ray.dy * t0, oz = ray.oz + ray.dz * t0;
         const muzzle = this.muzzleWorld();
         const sp = this.spread();
@@ -144,13 +155,14 @@ export class WeaponSystem {
             const dmg = d.damage * (hit.head ? W.headshotMultiplier : 1);
             if (hit.kind === 'ped') { hitAny = true; if (game.peds.damage(hit.target, dmg, 'player', hit)) kill = true; }
             else if (hit.kind === 'vehicle') { hitAny = true; hit.target.damage(dmg * 0.6, 'player'); game.effects.impactSparks(hit.x, hit.z, -hit.y, 0, 0, 2); }
+            else if (hit.kind === 'prop') game.hitProp(hit.target, hit);
             else if (hit.kind === 'world') game.effects.dust(hit.x, hit.z, -hit.y);
         }
         if (hitAny) { game.hud.hitMarker(kill); game.audio.hitmark(kill); }
         game.fx.flash(muzzle.x, muzzle.y, muzzle.z, d.pellets > 1 || d.zoom);
         game.audio.gunshot(d.sound);
         this.bloom = Math.min(d.spread * 1.5, this.bloom + d.bloom);
-        cam.pitch -= d.recoil * (this.aiming ? 0.7 : 1);
+        if (pv) cam.lookPitch -= d.recoil * 0.5; else cam.pitch -= d.recoil * (this.aiming ? 0.7 : 1);
         cam.yaw += (Math.random() - 0.5) * d.recoil * 0.4;
         cam.shake = Math.max(cam.shake, d.recoil * 2);
         game.crime('shooting', player.x, player.y);
@@ -175,6 +187,11 @@ export class WeaponSystem {
 
     // gun tip in map frame
     muzzleWorld() {
+        const pv = this.game.player.vehicle;
+        if (pv) {   // out of the driver's window
+            const v = pv.veh, side = v.P.halfWidth + 0.3;
+            return { x: v.x - Math.sin(v.th) * side + Math.cos(v.th) * 0.3, y: v.y + Math.cos(v.th) * side + Math.sin(v.th) * 0.3, z: v.z + 1.25 };
+        }
         if (!this.held) { const p = this.game.player; return { x: p.x + Math.cos(p.yaw) * 0.5, y: p.y + Math.sin(p.yaw) * 0.5, z: p.z + 1.4 }; }
         this.held.updateMatrixWorld(true);
         _v.copy(this.held.userData.muzzle).applyMatrix4(this.held.matrixWorld);

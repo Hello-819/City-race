@@ -6,6 +6,8 @@ import { createPerson } from '../assets.js';
 import { CONFIG } from '../config.js';
 import { Rng, clamp, damp } from '../core/rng.js';
 import { obbOverlap } from '../collide.js';
+import { pointBone, twoBoneIK } from '../core/bones.js';
+import { Ragdoll } from '../npc/ragdoll.js';
 
 const P = CONFIG.player;
 const _surf = {}, _cols = { boxes: [], circles: [] };
@@ -31,6 +33,7 @@ export class Player {
     setOutfit(outfit) {
         if (this.person) this.world.scene.remove(this.person.root);
         this.outfit = { kind: 'man', top: '#2b3a55', bottom: '#1f1f22', ...outfit };
+        this.ragdoll = null;
         this.person = createPerson(new Rng(7), this.outfit);
         this.person.anim = 'Idle';
         for (const [n, a] of Object.entries(this.person.actions)) a.setEffectiveWeight(n === 'Idle' ? 1 : 0);
@@ -41,10 +44,10 @@ export class Player {
     get inVehicle() { return !!this.vehicle; }
     get position() { return this.vehicle ? { x: this.vehicle.x, y: this.vehicle.y } : { x: this.x, y: this.y }; }
 
-    teleport(x, y, yaw = this.yaw) {
+    teleport(x, y, yaw = this.yaw, zHint = null) {
         this.x = x; this.y = y; this.yaw = yaw;
         this.vx = this.vy = this.vz = 0;
-        this.z = this.world.map.surfaceAt(x, y, _surf).h;
+        this.z = this.world.map.surfaceAt(x, y, _surf, zHint).h;
         this._sync(0);
     }
 
@@ -52,7 +55,7 @@ export class Player {
     update(dt, input, camYaw, vehicles) {
         if (this.vehicle) { this.x = this.vehicle.x; this.y = this.vehicle.y; return; }
         const map = this.world.map;
-        const surf = map.surfaceAt(this.x, this.y, _surf);
+        const surf = map.surfaceAt(this.x, this.y, _surf, this.z + 0.5);
         const ground = surf.h;
         this.swimming = surf.water > 1.25;
         // desired velocity relative to the camera
@@ -74,7 +77,8 @@ export class Player {
 
         // jump / gravity
         if (this.swimming) {
-            this.z = damp(this.z, CONFIG.map.seaLevel - 1.25, 6, dt); this.vz = 0; this.onGround = false;
+            const wl = map.waterLevel ? map.waterLevel(this.x, this.y) : CONFIG.map.seaLevel;   // sea or river surface
+            this.z = damp(this.z, wl - 1.25, 6, dt); this.vz = 0; this.onGround = false;
         } else {
             if (this.onGround && input.actHit('jump') && !this.dead) { this.vz = P.jumpSpeed; this.onGround = false; }
             this.vz -= 14 * dt;
@@ -91,9 +95,11 @@ export class Player {
         this.y += this.vy * dt;
         this._collide(vehicles);
         // the sea pushes swimmers back at the edge of the world
-        const lim = map.half - 60;
-        if (Math.abs(this.x) > lim) this.x -= Math.sign(this.x) * 2 * dt;
-        if (Math.abs(this.y) > lim) this.y -= Math.sign(this.y) * 2 * dt;
+        const B = map.bounds;
+        if (B) {
+            if (this.x < B.x0 + 60) this.x += 2 * dt; else if (this.x > B.x1 - 60) this.x -= 2 * dt;
+            if (this.y < B.y0 + 60) this.y += 2 * dt; else if (this.y > B.y1 - 60) this.y -= 2 * dt;
+        }
         this.speed = Math.hypot(this.vx, this.vy);
         this._sync(dt);
     }
@@ -102,6 +108,7 @@ export class Player {
         const r = P.radius, map = this.world.map;
         map.collidersNear(this.x, this.y, 4, _cols);
         for (const b of _cols.boxes) {
+            if (b.zMax !== undefined && (this.z > b.zMax - 0.2 || this.z + 1.8 < b.zMin)) continue;
             const qx = clamp(this.x, b.x0, b.x1), qy = clamp(this.y, b.y0, b.y1);
             let dx = this.x - qx, dy = this.y - qy;
             const d = Math.hypot(dx, dy);
@@ -118,6 +125,7 @@ export class Player {
             if (vn < 0) { this.vx -= vn * dx; this.vy -= vn * dy; }
         }
         for (const c of _cols.circles) {
+            if ((c.zMax !== undefined && this.z > c.zMax - 0.2) || c.fallen) continue;
             const dx = this.x - c.x, dy = this.y - c.y, d = Math.hypot(dx, dy), rr = r + c.r;
             if (d >= rr || d < 1e-5) continue;
             this.x += dx / d * (rr - d); this.y += dy / d * (rr - d);
@@ -135,6 +143,7 @@ export class Player {
     // pose the skinned model and blend Idle / Walk / Run
     _sync(dt) {
         const p = this.person;
+        if (this.ragdoll) { this.ragdoll.update(dt); return; }
         p.root.position.set(this.x, this.z, -this.y);
         p.root.rotation.set(0, this.yaw + Math.PI / 2, 0);
         if (this.dead) return;
@@ -146,8 +155,8 @@ export class Player {
             const w = a.getEffectiveWeight();
             a.setEffectiveWeight(n === p.anim ? Math.min(1, w + dt * 6) : Math.max(0, w - dt * 6));
         }
-        p.actions.Walk.timeScale = Math.max(0.6, sp / 1.35);
-        p.actions.Run.timeScale = Math.max(0.8, sp / 3.9);
+        p.actions.Walk.timeScale = Math.max(0.6, sp / p.walkSpeed);
+        p.actions.Run.timeScale = Math.max(0.8, sp / p.runSpeed);
         p.mixer.update(dt);
         if (this._armDir) this._applyArms();
     }
@@ -187,6 +196,7 @@ export class Player {
     enter(vehicle) {
         this.vehicle = vehicle;
         vehicle.driver = 'player';
+        vehicle.sleeping = false;
         this.person.root.visible = false;
         this.aiming = false;
     }
@@ -216,45 +226,20 @@ export class Player {
         if (this.health <= 0) { this.health = 0; this.dead = true; }
     }
 
+    // Go limp: hand the body over to the ragdoll (impulse = three.js world vector).
+    startRagdoll(impulse) {
+        const map = this.world.map;
+        this.person.mixer.update(0);
+        this.ragdoll = new Ragdoll(this.person, impulse, (x, z) => map.surfaceAt(x, -z).h, map);
+        if (!this.ragdoll.ok) this.ragdoll = null;
+    }
+
     heal(amount) { this.health = Math.min(this.maxHealth, this.health + amount); }
 
     dispose() { this.world.scene.remove(this.person.root); }
 }
 
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
-const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qp = new THREE.Quaternion();
-// Rotate `bone` (in world space) so the direction towards `child` matches `dir`.
-function pointBone(bone, child, dir) {
-    bone.updateWorldMatrix(true, true);
-    bone.getWorldPosition(_a); child.getWorldPosition(_b);
-    _d.subVectors(_b, _a).normalize();
-    _qa.setFromUnitVectors(_d, dir);
-    bone.getWorldQuaternion(_qb);
-    _qb.premultiply(_qa);
-    bone.parent.getWorldQuaternion(_qp);
-    bone.quaternion.copy(_qp.invert().multiply(_qb));
-    bone.updateWorldMatrix(false, true);
-}
-
-// Two-bone IK: place `hand` at `target` bending the elbow downwards.
-const _s = new THREE.Vector3(), _e = new THREE.Vector3(), _h = new THREE.Vector3(), _axis = new THREE.Vector3(), _dn = new THREE.Vector3(0, -1, 0);
-function twoBoneIK(upper, fore, hand, tgt) {
-    const target = tgt.clone();   // pointBone() reuses the scratch vectors
-    upper.updateWorldMatrix(true, true);
-    upper.getWorldPosition(_s); fore.getWorldPosition(_e); hand.getWorldPosition(_h);
-    const a = _s.distanceTo(_e), b = _e.distanceTo(_h);
-    const toT = _c.subVectors(target, _s);
-    const d = Math.min(toT.length(), a + b - 1e-3);
-    toT.normalize();
-    const cosA = Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d)));
-    _axis.crossVectors(toT, _dn);
-    if (_axis.lengthSq() < 1e-6) _axis.set(1, 0, 0);
-    _axis.normalize();
-    const upDir = _d.copy(toT).applyAxisAngle(_axis, -Math.acos(cosA));
-    pointBone(upper, fore, upDir.clone());
-    fore.getWorldPosition(_e);
-    pointBone(fore, hand, _c.subVectors(target, _e).normalize().clone());
-}
+const _a = new THREE.Vector3(), _c = new THREE.Vector3();
 
 function turn(a, b, rate, dt) {
     let d = b - a; d = Math.atan2(Math.sin(d), Math.cos(d));

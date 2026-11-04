@@ -87,14 +87,14 @@ export class ShopUI {
             const cur = g.save.outfitId || 'default';
             for (const o of S.outfits) {
                 const have = owned.includes(o.id);
-                row(o.name, o.kind === 'michelle' ? 'Character: Michelle' : 'Character: Alex', have ? null : o.price, cur === o.id ? 'Wearing' : have ? 'Wear' : 'Buy', () => {
+                row(o.name, 'Character outfit', have ? null : o.price, cur === o.id ? 'Wearing' : have ? 'Wear' : 'Buy', () => {
                     if (!have && !this.pay(o.price)) return;
                     if (!have) owned.push(o.id);
                     g.setOutfit(o);
                     this.msg(`Now wearing ${o.name}.`);
                 }, { disabled: cur === o.id, swatch: o.top || o.tint, owned: have });
             }
-        } else if (type === 'convenience' || type === 'cafe') {
+        } else if (type === 'convenience' || type === 'cafe' || type === 'hospital') {
             for (const it of S[type]) {
                 const full = (it.health && g.player.health >= g.player.maxHealth) && !it.armour || (it.armour && g.player.armour >= 100);
                 row(it.name, it.desc, it.price, 'Buy', () => {

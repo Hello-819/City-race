@@ -12,19 +12,20 @@ export const MAP_ICONS = ICONS;
 export class MapView {
     constructor(map) {
         this.map = map;
+        const B = map.bounds;
+        this.W = B.x1 - B.x0; this.H = B.y1 - B.y0;
         const N = 1024;
-        this.N = N;
-        this.size = map.half * 2;
-        this.k = N / this.size;            // pixels per metre in the base image
+        this.k = N / this.H;               // pixels per metre in the base image
         const c = document.createElement('canvas');
-        c.width = c.height = N;
+        c.width = Math.round(this.W * this.k); c.height = N;
+        this.NW = c.width; this.NH = c.height;
         const ctx = c.getContext('2d');
-        const cell = 4, step = this.size / (N / cell);
-        for (let j = 0; j < N / cell; j++) for (let i = 0; i < N / cell; i++) {
-            const x = -map.half + (i + 0.5) * step, y = map.half - (j + 0.5) * step;
+        const cell = 4, step = cell / this.k;
+        for (let j = 0; j < c.height / cell; j++) for (let i = 0; i < c.width / cell; i++) {
+            const x = B.x0 + (i + 0.5) * step, y = B.y1 - (j + 0.5) * step;
             const h = map.heightAt(x, y);
             let col;
-            if (h < CONFIG.map.seaLevel - 0.2) { const d = Math.min(1, -h / 20); col = `rgb(${Math.round(60 - 30 * d)},${Math.round(110 - 40 * d)},${Math.round(150 - 40 * d)})`; }
+            if (h < map.waterLevel(x, y) - 0.2) { const d = Math.min(1, Math.max(0, -h) / 20); col = `rgb(${Math.round(60 - 30 * d)},${Math.round(110 - 40 * d)},${Math.round(150 - 40 * d)})`; }
             else if (h < 2.2) col = '#c9b98a';
             else if (y > CONFIG.map.mountainY && h > 90) { const t = Math.min(1, (h - 90) / 250); col = `rgb(${Math.round(110 + 110 * t)},${Math.round(112 + 108 * t)},${Math.round(100 + 120 * t)})`; }
             else {
@@ -35,23 +36,47 @@ export class MapView {
             ctx.fillRect(i * cell, j * cell, cell, cell);
         }
         // roads
-        ctx.lineCap = 'square';
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         for (const e of map.edges) {
-            const [a, b] = this._ends(e);
-            ctx.strokeStyle = e.type === 'highway' ? '#e8c35a' : e.type === 'city' ? '#d8d8d8' : '#b9b9b0';
+            ctx.strokeStyle = e.type === 'highway' || e.type === 'ramp' ? '#e8c35a' : e.type === 'city' ? '#d8d8d8' : '#b9b9b0';
             ctx.lineWidth = e.type === 'highway' ? 3 : e.type === 'city' ? 2 : 1.4;
-            ctx.beginPath();
-            ctx.moveTo(...this.toPx(a.x, a.y)); ctx.lineTo(...this.toPx(b.x, b.y));
+            this._path(ctx, e, (x, y) => this.toPx(x, y));
             ctx.stroke();
         }
         this.image = c;
     }
 
-    _ends(e) { return [this.map.edgePoint(e, 0, 0, {}), this.map.edgePoint(e, e.len, 0, {})]; }
-    toPx(x, y) { return [(x + this.map.half) * this.k, (this.map.half - y) * this.k]; }
+    // trace an edge (straight or curved) as a canvas path
+    _path(ctx, e, P) {
+        ctx.beginPath();
+        if (e.poly) { const p = e.poly; ctx.moveTo(...P(p.x[0], p.y[0])); for (let i = 1; i < p.x.length; i++) ctx.lineTo(...P(p.x[i], p.y[i])); }
+        else { const a = this.map.edgePoint(e, 0, 0, {}), b = this.map.edgePoint(e, e.len, 0, {}); ctx.moveTo(...P(a.x, a.y)); ctx.lineTo(...P(b.x, b.y)); }
+    }
+
+    // GPS route: list of map points
+    _route(ctx, pts, P, width) {
+        if (!pts || pts.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = '#c77dff'; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(...P(pts[0].x, pts[0].y));
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(...P(pts[i].x, pts[i].y));
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // full-map screen pixel -> world point (for waypoints)
+    screenToWorld(px, py) {
+        const t = this.fullTf;
+        if (!t) return null;
+        const B = this.map.bounds;
+        const x = B.x0 + (px - t.ox) / t.k, y = B.y1 - (py - t.oy) / t.k;
+        return this.map.inBounds(x, y) ? { x, y } : null;
+    }
+
+    toPx(x, y) { return [(x - this.map.bounds.x0) * this.k, (this.map.bounds.y1 - y) * this.k]; }
 
     // Circular radar. heading: map-frame yaw that points "up" on the radar.
-    drawRadar(ctx, W, H, px, py, heading, blips, radius = 260) {
+    drawRadar(ctx, W, H, px, py, heading, blips, radius = 260, route = null) {
         const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 2;
         const s = R / radius;                       // pixels per metre on the radar
         ctx.save();
@@ -64,7 +89,7 @@ export class MapView {
         const [ix, iy] = this.toPx(px, py);
         const sc = s / this.k;
         ctx.globalAlpha = 0.85;
-        ctx.drawImage(this.image, -ix * sc, -iy * sc, this.N * sc, this.N * sc);
+        ctx.drawImage(this.image, -ix * sc, -iy * sc, this.NW * sc, this.NH * sc);
         ctx.globalAlpha = 1;
         // crisp roads
         const seen = new Set();
@@ -72,15 +97,13 @@ export class MapView {
             for (const id of this.map.edgesNear(gx, gy)) {
                 if (seen.has(id)) continue; seen.add(id);
                 const e = this.map.edges[id];
-                const [a, b] = this._ends(e);
-                ctx.strokeStyle = e.type === 'highway' ? '#f0cf6a' : '#dfe3e8';
+                ctx.strokeStyle = e.type === 'highway' || e.type === 'ramp' ? '#f0cf6a' : '#dfe3e8';
                 ctx.lineWidth = Math.max(1.5, e.half * 2 * s * 0.8);
-                ctx.beginPath();
-                ctx.moveTo((a.x - px) * s, -(a.y - py) * s);
-                ctx.lineTo((b.x - px) * s, -(b.y - py) * s);
+                this._path(ctx, e, (x, y) => [(x - px) * s, -(y - py) * s]);
                 ctx.stroke();
             }
         }
+        this._route(ctx, route, (x, y) => [(x - px) * s, -(y - py) * s], 4);
         // blips (clamped to the rim)
         for (const b of blips) {
             let dx = (b.x - px) * s, dy = -(b.y - py) * s;
@@ -105,14 +128,17 @@ export class MapView {
     }
 
     // Full-screen map with legend.
-    drawFull(ctx, W, H, px, py, heading, blips) {
+    drawFull(ctx, W, H, px, py, heading, blips, route = null) {
         ctx.clearRect(0, 0, W, H);
         ctx.fillStyle = '#1d2c38'; ctx.fillRect(0, 0, W, H);
-        const S = Math.min(W, H) * 0.92;
-        const ox = (W - S) / 2, oy = (H - S) / 2;
-        ctx.drawImage(this.image, ox, oy, S, S);
-        const k = S / this.size;
-        const P = (x, y) => [ox + (x + this.map.half) * k, oy + (this.map.half - y) * k];
+        const k = Math.min(W * 0.92 / this.W, H * 0.92 / this.H);
+        const SW = this.W * k, SH = this.H * k;
+        const ox = (W - SW) / 2, oy = (H - SH) / 2;
+        ctx.drawImage(this.image, ox, oy, SW, SH);
+        const B = this.map.bounds;
+        const P = (x, y) => [ox + (x - B.x0) * k, oy + (B.y1 - y) * k];
+        this.fullTf = { ox, oy, k, W, H };
+        this._route(ctx, route, P, 3);
         for (const b of blips) { const [x, y] = P(b.x, b.y); ctx.save(); ctx.translate(x, y); drawBlip(ctx, b, 1.2); ctx.restore(); }
         const [x, y] = P(px, py);
         ctx.save(); ctx.translate(x, y); ctx.rotate(-(heading - Math.PI / 2));
@@ -123,14 +149,14 @@ export class MapView {
         ctx.font = '13px system-ui, sans-serif';
         ctx.textBaseline = 'middle';
         let ly = oy + 16;
-        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(ox + 8, oy + 4, 170, 24 + Object.keys(ICONS).length * 20);
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(ox + 8, oy + 4, 330, 24 + Object.keys(ICONS).length * 20);
         for (const [type, [sym, col]] of Object.entries(ICONS)) {
             ctx.save(); ctx.translate(ox + 22, ly + 6); drawBlip(ctx, { type, icon: sym, color: col }); ctx.restore();
             ctx.fillStyle = '#fff'; ctx.fillText(LABEL[type], ox + 40, ly + 6);
             ly += 20;
         }
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.fillText('M / Esc to close', ox + 14, ly + 10);
+        ctx.fillText('Click: set / clear waypoint · M / Esc to close', ox + 14, ly + 10);
     }
 }
 

@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { GameMap } from '../world/map.js';
 import { Streamer } from '../world/streamer.js';
+import { propMatrix } from '../world/chunkBuilder.js';
 import { setWorldNight, SPECIAL_NAMES } from '../world/materials.js';
 import { Player } from '../player/player.js';
 import { GameCamera } from '../player/camera.js';
@@ -29,6 +30,7 @@ import { Peds } from '../npc/peds.js';
 import { Police } from '../npc/police.js';
 import { Pickups } from './pickups.js';
 import { Jobs } from './jobs.js';
+import { Missions } from './missions.js';
 import { Traffic } from '../vehicles/traffic.js';
 import { Interiors } from '../shops/interiors.js';
 import { ShopUI } from '../shops/shopUI.js';
@@ -65,7 +67,8 @@ export class Game {
         this.jobs = new Jobs(this);
         this.personalCar = null;
         this.traffic = new Traffic(this);
-        this.extraBlips = () => [...this.jobs.blips(), ...this.traffic.blips()];
+        this.missions = new Missions(this);
+        this.extraBlips = () => [...this.jobs.blips(), ...this.traffic.blips(), ...this.missions.blips()];
         this.doorPrompt = (b) => this.interiors.prompt(b);
         this.timeScale = 1;
         this.time = 0;
@@ -83,7 +86,7 @@ export class Game {
     start() {
         const s = this.save.pos;
         const P = CONFIG.player.spawn;
-        if (s && this.map.inBounds(s.x, s.y)) this.player.teleport(s.x, s.y, s.yaw);
+        if (s && this.map.inBounds(s.x, s.y) && this._safeSpot(s.x, s.y)) this.player.teleport(s.x, s.y, s.yaw);
         else this.player.teleport(P.x, P.y, Math.PI / 2);
         this.player.health = this.save.health || 100;
         this.player.armour = this.save.armour ?? 0;
@@ -94,6 +97,12 @@ export class Game {
         this.spawnParked('sports', 9.0, -16, Math.PI / 2);
         this.streamer.update(this.player.x, this.player.y, Infinity);
         this.hud.notify('Welcome to the island. <b>WASD</b> move, mouse look, <b>F</b> enter cars, <b>right mouse</b> aim, <b>left mouse</b> shoot, hold <b>Q</b> for the weapon wheel, <b>M</b> map.', 9);
+    }
+
+    // Is (x, y) dry land outside buildings? (old saves may predate map changes)
+    _safeSpot(x, y) {
+        if (this.map.surfaceAt(x, y).water > 0.5) return false;
+        return !this.map.collidersNear(x, y, 2).boxes.some(b => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1);
     }
 
     // ------------------------------------------------------------ vehicles
@@ -121,9 +130,74 @@ export class Game {
         if (Math.hypot(v.x - p.x, v.y - p.y) < 60) this.audio.horn();
     }
 
+    // ------------------------------------------------------------- props
+    // A bullet hit a tree / pole / pillar / rock.
+    hitProp(c, hit) {
+        const wood = c.type === 'tree' || c.type === 'pine' || c.type === 'palm';
+        if (wood) this.effects.wood(hit.x, hit.z, -hit.y);
+        else if (c.type === 'rock' || c.type === 'pillar') this.effects.dust(hit.x, hit.z, -hit.y);
+        else this.effects.impactSparks(hit.x, hit.z, -hit.y, 0, 0, 3);
+    }
+
+    // A vehicle snapped a lamp post / tree: it falls in the direction of travel.
+    knockProp(c, vx, vy) {
+        if (c.fallen) return;
+        c.fallen = true;
+        c.fallDir = Math.atan2(vx, -vy);       // three.js yaw of the travel direction
+        for (const [im, i, fn] of c._inst || []) {
+            im.setMatrixAt(i, propMatrix(c, fn));
+            im.instanceMatrix.needsUpdate = true;
+        }
+        const h = this.map.heightAt(c.x, c.y);
+        this.effects.impactSparks(c.x, h + 0.6, -c.y, vx * 0.3, -vy * 0.3, 6);
+        if (c.type !== 'lamp') this.effects.wood(c.x, h + 1, -c.y);
+        this.audio.impact(8);
+    }
+
+    // ------------------------------------------------------------- map / GPS
+    // The full map frees the mouse so you can click to set a waypoint.
+    setMapOpen(open) {
+        this.mapOpen = open;
+        this.wantsCursor = open;
+        if (open) this.input.exitLock(); else this.input.requestLock();
+    }
+
+    // Click on the full map: set (or clear) the waypoint.
+    mapClick(px, py) {
+        const w = this.hud.mapView.screenToWorld(px, py);
+        if (!w) return;
+        if (this.waypoint && Math.hypot(this.waypoint.x - w.x, this.waypoint.y - w.y) < 120) this.waypoint = null;
+        else this.waypoint = { x: w.x, y: w.y };
+        this.gpsT = 0;
+    }
+
+    // GPS: road route to the job / mission target, else the map waypoint.
+    gpsTarget() {
+        if (this.missions && this.missions.target) return this.missions.target;
+        if (this.jobs.job) return this.jobs.job;
+        return this.waypoint;
+    }
+
+    _updateGps(dt) {
+        this.gpsT = (this.gpsT || 0) - dt;
+        if (this.gpsT > 0) return;
+        this.gpsT = 1.5;
+        const t = this.gpsTarget(), p = this.player.position;
+        if (!t || Math.hypot(t.x - p.x, t.y - p.y) < 25) { this.route = null; return; }
+        const r = this.map.route(p.x, p.y, t.x, t.y);
+        if (!r) { this.route = null; return; }
+        const pts = [{ x: p.x, y: p.y }];
+        for (const { edge, fwd } of r.path) {
+            const n = Math.max(1, Math.ceil(edge.len / 15));
+            for (let i = 0; i <= n; i++) pts.push(this.map.edgePoint(edge, fwd ? edge.len * i / n : edge.len * (1 - i / n), 0, {}));
+        }
+        pts.push({ x: t.x, y: t.y });
+        this.route = pts;
+    }
+
     // -------------------------------------------------------- purchases
     setOutfit(o) {
-        const spec = o.kind === 'michelle' ? { kind: 'michelle', tint: o.tint } : { kind: 'man', top: o.top, bottom: o.bottom };
+        const spec = o.kind === 'man' ? { kind: 'man', top: o.top, bottom: o.bottom } : { kind: o.kind, tint: o.tint, noTint: o.noTint };
         this.player.setOutfit(spec);
         this.save.outfitId = o.id;
         this.save.outfit = this.player.outfit;
@@ -138,8 +212,11 @@ export class Game {
         const r = this.map.nearestRoad(door.x + door.nx * 8, door.y + door.ny * 8, 60);
         const e = r.edge;
         const off = e.half + 1.3;                                           // on the pavement edge
-        const p = this.map.edgePoint(e, Math.min(e.len - 12, r.s + 8), off * (Math.sign((door.x - e.c) * (e.axis === 'x' ? 1 : 0) + (e.c - door.y) * (e.axis === 'y' ? 1 : 0)) || 1), {});
-        const v = this.spawnParked(c.model, p.x, p.y, Math.atan2(e.uy, e.ux), c.color);
+        const side = Math.sign(this.map._project(e, door.x, door.y).d) || 1;    // the shop's side of the road
+        const s = Math.min(e.len - 12, r.s + 8);
+        const p = this.map.edgePoint(e, s, off * side, {});
+        const t = this.map.tangent(e, s);
+        const v = this.spawnParked(c.model, p.x, p.y, Math.atan2(t.y, t.x), c.color);
         v.owned = true;
         this.personalCar = v;
     }
@@ -161,9 +238,11 @@ export class Game {
         if (before === 0) this.hud.notify('The police are after you! Get out of sight to lose your <b>wanted level</b>.', 4);
     }
 
-    hurtPlayer(amount) {
+    // impulse (optional): three.js world vector for the ragdoll if this kills us
+    hurtPlayer(amount, impulse = null) {
         const p = this.player;
         if (p.dead) return;
+        if (impulse) this.lastHurtImpulse = impulse;
         p.damage(amount);
         this.cam.shake = Math.max(this.cam.shake, 0.25);
         document.getElementById('hud').classList.remove('hurt'); void document.getElementById('hud').offsetWidth;
@@ -177,10 +256,13 @@ export class Game {
         const pp = this.player.position;
         const d = Math.hypot(pp.x - x, pp.y - y);
         this.cam.shake = Math.max(this.cam.shake, Math.max(0, 1.2 - d / 40));
-        if (d < 9) this.hurtPlayer(this.player.vehicle && this.player.vehicle.alive === false ? 500 : (9 - d) * 22);
+        if (d < 9) this.hurtPlayer(this.player.vehicle && this.player.vehicle.alive === false ? 500 : (9 - d) * 22, new THREE.Vector3((pp.x - x) / (d || 1) * 7, 7, -(pp.y - y) / (d || 1) * 7));
         for (const p of this.peds.active) {
             const dp = Math.hypot(p.x - x, p.y - y);
-            if (dp < 8) this.peds.damage(p, (8 - dp) * 40, by === 'player' ? 'player' : 'explosion', null);
+            if (dp < 8) {
+                const k = (8 - dp) * 0.7 / (dp || 1);
+                this.peds.damage(p, (8 - dp) * 40, by === 'player' ? 'player' : 'explosion', null, new THREE.Vector3((p.x - x) * k, 3 + (8 - dp) * 0.5, -(p.y - y) * k));
+            }
             else if (dp < 40 && !p.dead) this.peds.alarm(x, y, 0.1);
         }
         for (const v of this.vehicles) {
@@ -198,6 +280,9 @@ export class Game {
         this.deathKind = 'wasted';
         const p = this.player;
         if (p.vehicle) { const v = p.vehicle; p.exit(); v.controls = { throttle: 0, brake: 1, steer: 0, handbrake: 1 }; }
+        const imp = this.lastHurtImpulse || new THREE.Vector3(-Math.cos(p.yaw) * 2, 1, Math.sin(p.yaw) * 2);
+        p.startRagdoll(imp);
+        this.lastHurtImpulse = null;
         this.hud.big('WASTED', '');
         this.audio.boom();
         this.save.stats.deaths++;
@@ -214,8 +299,8 @@ export class Game {
     _updateDeath(dt) {
         this.deathT += dt;
         const p = this.player;
-        // fall over
-        if (this.deathKind === 'wasted') {
+        // collapse: ragdoll if we have one, otherwise a simple topple
+        if (this.deathKind === 'wasted' && !p.ragdoll) {
             const f = Math.min(1, this.deathT * 2.5);
             p.person.root.rotation.set(0, p.yaw + Math.PI / 2, 0, 'YXZ');
             p.person.root.rotateX(-f * Math.PI / 2);
@@ -236,6 +321,7 @@ export class Game {
         this.money -= paid;
         const p = this.player;
         p.dead = false; p.health = p.maxHealth; p.armour = 0;
+        p.ragdoll = null;
         p.person.root.rotation.set(0, 0, 0);
         p.teleport(best.x + best.nx * 3, best.y + best.ny * 3, Math.atan2(best.ny, best.nx));
         this.cam.yaw = p.yaw; this.cam.pitch = 0.15;
@@ -263,12 +349,14 @@ export class Game {
     update(rawDt) {
         const input = this.input, player = this.player;
         // --- map toggle ---
-        if (input.actHit('map') && !this.wheel.open) this.mapOpen = !this.mapOpen;
+        if (input.actHit('map') && !this.wheel.open && !this.shopUI.open) this.setMapOpen(!this.mapOpen);
         if (this.mapOpen) {
-            if (input.hit('Escape', 'KeyP')) this.mapOpen = false;
+            if (input.hit('Escape', 'KeyP')) this.setMapOpen(false);
+            this._updateGps(rawDt);
             this.hud.drawFullMap(this._hudState());
             return;
         }
+        if (!this.interiors.inside) this._updateGps(rawDt);
         // --- inside a shop: only the room, the player and the shop UI run ---
         if (this.interiors.inside) { this._updateInterior(rawDt); return; }
         // --- doors ---
@@ -277,7 +365,7 @@ export class Game {
             if (door) this.interiors.enter(door);
         }
         // --- weapon wheel (hold) ---
-        const canWheel = !player.vehicle && !player.dead && !this.wantsCursor;
+        const canWheel = !player.dead && !this.wantsCursor;
         if (input.actHit('weaponWheel') && canWheel) this.wheel.show(this.weapons);
         if (this.wheel.open) {
             this.wheel.move(input.mouseDX, input.mouseDY);
@@ -307,6 +395,7 @@ export class Game {
         for (const v of this.vehicles) {
             if (v !== pv && !(v.driver && v.driver !== 'player')) v.controls = PARKED;
             if (Math.abs(v.x - pos0.x) > 450 || Math.abs(v.y - pos0.y) > 450) continue;
+            if (v.sleeping && v.health > 0 && v.burnT === undefined) continue;     // parked: no physics until disturbed
             const impacts = v.update(dt);
             for (const h of impacts) {
                 if (h.speed > 6) v.damage((h.speed - 6) * 22, v === pv ? 'player' : null);
@@ -321,7 +410,9 @@ export class Game {
         for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
             const a = near[i], b = near[j];
             const hit = vehicleVsVehicle(a.veh, b.veh);
-            if (!hit || hit.speed < 1) continue;
+            if (!hit) continue;
+            a.sleeping = false; b.sleeping = false;          // a bump wakes parked cars
+            if (hit.speed < 1) continue;
             if (hit.speed > 4) { a.damage((hit.speed - 4) * 18, b === pv ? 'player' : null); b.damage((hit.speed - 4) * 18, a === pv ? 'player' : null); }
             if (a === pv || b === pv) {
                 this.audio.impact(hit.speed); this.cam.shake = Math.max(this.cam.shake, hit.speed / 30);
@@ -336,13 +427,18 @@ export class Game {
         player.update(dt, input, this.cam.yaw, this.vehicles);
         let cross = { style: null, spread: 0 };
         if (!player.vehicle) cross = this.weapons.update(dt, input, !player.dead && !this.wheel.open && !this.wantsCursor && !player.swimming);
-        else { player.aiming = false; this.weapons.update(dt, input, false); }
+        else {
+            // drive-by shooting (pistol / SMG) while aiming with the right mouse button
+            cross = this.weapons.update(dt, input, !player.dead && !this.wheel.open && !this.wantsCursor);
+            if (this.weapons.aiming) this.cam.idle = 0;     // keep the camera where you aim
+        }
 
         // --- NPCs, police, pickups ---
         this.peds.update(dt);
         this.police.update(dt);
         this.pickups.update(dt);
         this.jobs.update(dt);
+        this.missions.update(dt);
         if (this.deathT > 0) this._updateDeath(rawDt);
 
         // --- camera ---
@@ -422,7 +518,7 @@ export class Game {
         const p = this.player;
         if (p.vehicle || p.dead) { this.hud.prompt(''); return; }
         const v = p.nearestVehicle(this.vehicles);
-        const jp = this.jobs.prompt();
+        const jp = this.missions.prompt() || this.jobs.prompt();
         if (jp) { this.hud.prompt(jp); return; }
         if (v) { this.hud.prompt(`<kbd>F</kbd> ${v.driver && v.driver !== 'player' ? 'Steal' : 'Enter'} ${v.info.name || 'vehicle'}`); return; }
         for (const b of this.specialBlips) {
@@ -442,7 +538,9 @@ export class Game {
         if (map.surfaceAt(x, y).kind === 'water') return 'Open Water';
         const r = map.roadAt(x, y);
         if (r && r.edge.type === 'highway') return 'Ring Highway';
+        if (r && r.edge.type === 'mountain') return 'Granite Pass';
         if (y > MC.mountainY + 100) return 'Granite Ridge';
+        if (map.waterLevel(x, y) > MC.seaLevel + 0.1 || (r && r.edge.type !== 'ramp' && map.heightAt(x, y) < map.waterLevel(x, y))) return 'Coral River';
         if (map.shoreDist(x, y) < MC.beachWidth + 80) return y < 0 ? 'Coral Beach' : x > 0 ? 'East Shore' : 'West Shore';
         const z = map.zoneAt(x, y);
         if (z === 'city') return Math.hypot(x, y) < MC.downtownRadius ? 'Downtown' : 'Midtown';
@@ -459,6 +557,7 @@ export class Game {
         for (const c of this.peds.copsActive) blips.push({ x: c.x, y: c.y, dot: true, color: '#3b6bff', size: 3 });
         for (const pd of this.peds.active) if (!pd.cop && !pd.dead && pd.state === 'fight') blips.push({ x: pd.x, y: pd.y, dot: true, color: '#ff3b30', size: 3 });
         if (this.extraBlips) blips.push(...this.extraBlips());
+        if (this.waypoint) blips.push({ x: this.waypoint.x, y: this.waypoint.y, icon: '⚑', color: '#c77dff', edge: true });
         // crosshair turns red over enemies
         let style = cross.style;
         if (style && this.weapons.aiming) {
@@ -472,14 +571,16 @@ export class Game {
         }
         return {
             player: p, vehicle: p.vehicle, clock: this.env.clockText, money: this.money,
-            wanted: { stars: this.police.stars, flash: this.police.searching }, weapon: this.weapons.hud(),
+            wanted: { stars: this.police.stars, flash: this.police.searching }, weapon: this.weapons.hud(), route: this.route,
             heading, blips, crosshair: style, spread: cross.spread,
         };
     }
 
     // ------------------------------------------------------------------ save
     snapshot() {
-        const p = this.player, pos = p.position;
+        const p = this.player;
+        // inside a shop the player is in room coordinates: save the spot outside the door
+        const pos = this.interiors.current ? this.interiors.current.outside : p.position;
         Object.assign(this.save, {
             money: this.money, hour: this.env.hour, health: p.dead ? 100 : p.health, armour: p.armour,
             pos: { x: pos.x, y: pos.y, yaw: p.yaw }, outfit: p.outfit, weapons: this.weapons.serialize(),
@@ -493,6 +594,7 @@ export class Game {
         this.fx.dispose();
         this.pickups.dispose();
         this.jobs.dispose();
+        this.missions.dispose();
         this.traffic.dispose();
         this.peds.dispose();
         this.weapons.dispose();

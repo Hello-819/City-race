@@ -17,15 +17,18 @@ import { Rng } from '../core/rng.js';
 import { SPECIAL_NAMES } from '../world/materials.js';
 import { CONFIG } from '../config.js';
 
-export const ENTERABLE = ['gun', 'clothes', 'dealership', 'convenience', 'cafe'];
+export const ENTERABLE = ['gun', 'clothes', 'dealership', 'convenience', 'cafe', 'hospital'];
 
 // Room sizes (half extents, m) and colours per shop type.
-const ROOM = {
-    gun: { hx: 7, hy: 6, wall: 0x4a4a46, floor: 0x2b2b2b, light: 0xfff0d8 },
-    clothes: { hx: 9, hy: 7, wall: 0xe9e2d8, floor: 0xb08a62, light: 0xfff6ee },
-    dealership: { hx: 16, hy: 12, wall: 0xf2f2f2, floor: 0xcfd3d6, light: 0xffffff },
-    convenience: { hx: 7, hy: 6, wall: 0xdedede, floor: 0xbfc7c9, light: 0xf2fbff },
-    cafe: { hx: 8, hy: 6, wall: 0xc8a27c, floor: 0x6d4a32, light: 0xffe2b8 },
+// Three themes per shop type; each shop building picks one from its id, and
+// the middle theme also mirrors the layout, so shops of the same kind differ.
+const ROOMS = {
+    gun: [{ hx: 7, hy: 6, wall: 0x4a4a46, floor: 0x2b2b2b, light: 0xfff0d8 }, { hx: 8, hy: 6.5, wall: 0x3b4a3a, floor: 0x5a4632, light: 0xffe0b0 }, { hx: 9, hy: 7, wall: 0x2a2f38, floor: 0x1e1e1e, light: 0xd8e8ff }],
+    clothes: [{ hx: 9, hy: 7, wall: 0xe9e2d8, floor: 0xb08a62, light: 0xfff6ee }, { hx: 10, hy: 7, wall: 0x1d1d22, floor: 0x3a3a40, light: 0xffd6f0 }, { hx: 8, hy: 7.5, wall: 0xd7e8e4, floor: 0xe8e8e8, light: 0xffffff }],
+    dealership: [{ hx: 16, hy: 12, wall: 0xf2f2f2, floor: 0xcfd3d6, light: 0xffffff }, { hx: 16, hy: 12, wall: 0x22262c, floor: 0x9aa0a8, light: 0xe8f0ff }, { hx: 18, hy: 12, wall: 0xe8dcc8, floor: 0x7a6a58, light: 0xfff0d8 }],
+    convenience: [{ hx: 7, hy: 6, wall: 0xdedede, floor: 0xbfc7c9, light: 0xf2fbff }, { hx: 8, hy: 6, wall: 0xf0e2c0, floor: 0xa89a7a, light: 0xfff4dc }, { hx: 7, hy: 7, wall: 0xcfe0f0, floor: 0x8a9aa8, light: 0xe8f4ff }],
+    cafe: [{ hx: 8, hy: 6, wall: 0xc8a27c, floor: 0x6d4a32, light: 0xffe2b8 }, { hx: 9, hy: 6, wall: 0x2e4a3a, floor: 0x8a6a4a, light: 0xffd8a0 }, { hx: 8, hy: 7, wall: 0xf0ece4, floor: 0x2a2a2a, light: 0xfff0e0 }],
+    hospital: [{ hx: 10, hy: 8, wall: 0xf4f6f8, floor: 0xd8e0e4, light: 0xf4fbff }, { hx: 10, hy: 8, wall: 0xe2f0ec, floor: 0xc8d4d0, light: 0xffffff }, { hx: 11, hy: 8, wall: 0xf0f0f4, floor: 0xb8c8d8, light: 0xeef6ff }],
 };
 const H = 4;                 // ceiling height
 
@@ -84,7 +87,8 @@ export class Interiors {
         this.busy = true;
         g.hud.fade(1, 350);
         setTimeout(() => {
-            const room = this._room(blip.type);
+            const variant = [...door.id].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) % 997, 7) % 3;
+            const room = this._room(blip.type, variant);
             this.current = { ...room, type: blip.type, door, outside: { x: g.player.x, y: g.player.y, yaw: g.player.yaw } };
             this._movePlayer(room.scene, room.map);
             g.player.teleport(0, -room.map.hy + 1.6, Math.PI / 2);
@@ -138,9 +142,10 @@ export class Interiors {
     }
 
     // ---------------------------------------------------------- room build
-    _room(type) {
-        if (this.cache.has(type)) return this.cache.get(type);
-        const R = ROOM[type];
+    _room(type, variant = 0) {
+        const key = type + variant;
+        if (this.cache.has(key)) return this.cache.get(key);
+        const R = ROOMS[type][variant];
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x101010);
         scene.environment = this.game.scene.environment;
@@ -184,6 +189,19 @@ export class Interiors {
         scene.add(keeper.root);
         const rng = new Rng(77 + type.length);
         // decor per type
+        const firstDecor = scene.children.length, firstBox = map.boxes.length;
+        if (type === 'hospital') {        // beds with curtains, a waiting bench
+            for (let k = 0; k < 4; k++) {
+                const x = -R.hx + 2.2 + k * 2.6;
+                add(new THREE.BoxGeometry(1.0, 0.55, 2.1), std(0xffffff), x, -1.5, 0.3);
+                add(new THREE.BoxGeometry(1.0, 0.12, 0.5), std(0xb8d8f0), x, -0.7, 0.62);
+                add(new THREE.BoxGeometry(0.04, 2.2, 2.4), std(0x7fb8c8, { transparent: true, opacity: 0.8 }), x + 1.25, -1.5, 1.1);
+                map.boxes.push({ x0: x - 0.55, y0: -2.6, x1: x + 0.55, y1: -0.4, h: 0.6 });
+            }
+            add(new THREE.BoxGeometry(4, 0.45, 0.6), std(0x3a6a9a), R.hx - 3, -R.hy + 2.2, 0.25);
+            map.boxes.push({ x0: R.hx - 5, y0: -R.hy + 1.9, x1: R.hx - 1, y1: -R.hy + 2.5, h: 0.5 });
+            add(new THREE.BoxGeometry(1.4, 1.4, 0.05), std(0xffffff, { emissive: 0xff2020, emissiveIntensity: 0.8 }), 0, R.hy - 0.1, 3.0);
+        }
         if (type === 'gun') {
             for (const [i, id] of ['pistol', 'smg', 'shotgun', 'rifle', 'sniper'].entries()) {
                 const g = gunModel(id);
@@ -194,7 +212,7 @@ export class Interiors {
             add(new THREE.BoxGeometry(0.2, 2.6, 6), std(0x3a2a1c), -R.hx + 0.1, 0, 1.4);
             for (let i = 0; i < 3; i++) { add(new THREE.BoxGeometry(2.4, 1.0, 0.8), std(0x2c2c2c), R.hx - 2, -3 + i * 2.6, 0.5); map.boxes.push({ x0: R.hx - 3.2, y0: -3.4 + i * 2.6, x1: R.hx - 0.8, y1: -2.6 + i * 2.6, h: 1 }); }
         } else if (type === 'clothes') {
-            const cols = CONFIG.shops.outfits.map(o => o.top || o.tint);
+            const cols = CONFIG.shops.outfits.map((o, i) => o.top || o.tint || ['#c0392b', '#2f5d8a', '#3a4a3a', '#d4a017', '#6b2fb3'][i % 5]);
             for (let r = 0; r < 4; r++) {
                 const x = -R.hx + 2.5 + r * 3.2;
                 add(new THREE.BoxGeometry(2.4, 0.05, 0.05), std(0xaaaaaa, { metalness: 0.8 }), x, -1, 1.6);
@@ -231,8 +249,33 @@ export class Interiors {
                 map.boxes.push({ x0: x - 1.3, y0: y - 0.7, x1: x + 1.3, y1: y + 0.7, h: 0.8 });
             }
         }
+        // variant extras
+        if (variant === 2) {
+            if (type === 'gun') {          // a short shooting range along the side wall
+                for (let i = 0; i < 3; i++) {
+                    add(new THREE.BoxGeometry(0.05, 1.6, 0.9), std(0x8a8a8a), -R.hx + 0.4, -R.hy + 2 + i * 1.6, 1.6);
+                    add(new THREE.CircleGeometry(0.3, 16), std(0xffffff, { emissive: 0xff2020, emissiveIntensity: 0.3 }), -R.hx + 0.5, -R.hy + 2 + i * 1.6, 1.6).rotation.y = Math.PI / 2;
+                }
+            } else if (type === 'clothes' || type === 'cafe' || type === 'convenience') {
+                for (let i = 0; i < 3; i++) {   // mannequins / plants / displays along the front
+                    const x = -R.hx + 2.5 + i * (R.hx - 1.5);
+                    add(new THREE.CylinderGeometry(0.25, 0.3, 1.7, 10), std(type === 'cafe' ? 0x2f6a3a : 0xdedede), x, -R.hy + 2.2, 0.85);
+                    map.boxes.push({ x0: x - 0.35, y0: -R.hy + 1.85, x1: x + 0.35, y1: -R.hy + 2.55, h: 1.7 });
+                }
+            } else if (type === 'dealership') {
+                const rig = createVehicleRig('prototype', '#8e24aa');
+                rig.root.position.set(R.hx - 4, 0, -(R.hy - 5)); rig.root.rotation.y = -0.6;
+                scene.add(rig.root);
+                map.boxes.push({ x0: R.hx - 6.6, y0: R.hy - 7.6, x1: R.hx - 1.4, y1: R.hy - 2.4, h: 1.4 });
+            }
+        }
+        // the middle theme mirrors everything after the shell left <-> right
+        if (variant === 1) {
+            for (let i = firstDecor; i < scene.children.length; i++) { const o = scene.children[i]; o.position.x *= -1; o.rotation.y *= -1; }
+            for (let i = firstBox; i < map.boxes.length; i++) { const b = map.boxes[i]; [b.x0, b.x1] = [-b.x1, -b.x0]; }
+        }
         const room = { scene, map, counter, keeper };
-        this.cache.set(type, room);
+        this.cache.set(key, room);
         return room;
     }
 }

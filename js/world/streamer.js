@@ -28,6 +28,8 @@ export class Streamer {
         this.ocean = ocean;
         scene.add(ocean);
         this.stats = { near: 0, far: 0, built: 0 };
+        this.nearRadius = S.nearRadius;     // set from the graphics preset / adaptive quality
+        this.farRadius = S.farRadius;
     }
 
     _rectDist(cx, cy, x, y) {
@@ -40,19 +42,19 @@ export class Streamer {
     // pass Infinity to build everything synchronously (initial load).
     update(x, y, budgetMs = S.buildBudgetMs) {
         const map = this.map;
-        const R = Math.ceil(S.farRadius / CHUNK) + 1;
+        const R = Math.ceil(this.farRadius / CHUNK) + 1;
         const fcx = Math.floor(x / CHUNK), fcy = Math.floor(y / CHUNK);
-        const half = map.half / CHUNK;
+        const B = map.bounds;
         const want = [];
         const keep = new Set();
         for (let cx = fcx - R; cx <= fcx + R; cx++) for (let cy = fcy - R; cy <= fcy + R; cy++) {
-            if (cx < -half - 2 || cx >= half + 2 || cy < -half - 2 || cy >= half + 2) continue;
+            if (cx * CHUNK < B.x0 - 600 || cx * CHUNK > B.x1 + 600 || cy * CHUNK < B.y0 - 600 || cy * CHUNK > B.y1 + 600) continue;
             const dist = this._rectDist(cx, cy, x, y);
             const key = map.chunkKey(cx, cy);
             const cur = this.loaded.get(key);
-            if (dist > S.farRadius + (cur ? 120 : 0)) continue;
+            if (dist > this.farRadius + (cur ? 120 : 0)) continue;
             // hysteresis so chunks on the boundary do not flip LOD every frame
-            const nearR = S.nearRadius + (cur && cur.lod === 0 ? 60 : 0);
+            const nearR = this.nearRadius + (cur && cur.lod === 0 ? 60 : 0);
             const lod = dist <= nearR ? 0 : 1;
             keep.add(key);
             if (!cur || cur.lod !== lod) want.push({ key, cx, cy, lod, dist });

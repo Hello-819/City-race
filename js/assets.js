@@ -73,7 +73,20 @@ const loaded = {};
 export const TRAFFIC_EXTRA = [];   // raw manifest entries from assets/models/traffic/manifest.json
 const EXTRA_SPECS = {};            // id -> car spec for user-supplied traffic models
 export const TRAFFIC_IDS = ['ferrari', 'concept'];
-const specOf = (id) => CARS[id] || EXTRA_SPECS[id];
+const specOf = (id) => CARS[id] || EXTRA_SPECS[id] || KENNEY_SPECS[id];
+
+// Kenney "Car Kit" (CC0) vehicles: real low-poly car models with separate
+// paint / window / light / tyre materials and wheel nodes. `len` is the real
+// length (m) each model is scaled to.
+export const KENNEY = {
+    // [length, width] in metres. Length sets a uniform scale (keeps wheels
+    // round); width then narrows the chunky toy proportions sideways only.
+    sedan: [4.6, 1.95], sedanSports: [4.5, 1.95], hatchbackSports: [4.0, 1.8], suv: [4.8, 2.05], suvLuxury: [4.9, 2.05],
+    taxi: [4.6, 1.95], police: [4.8, 2.0], van: [5.1, 2.1], truck: [5.3, 2.1], truckFlat: [5.6, 2.2],
+    delivery: [6.4, 2.4], deliveryFlat: [6.8, 2.4], ambulance: [6.0, 2.3], firetruck: [8.4, 2.6],
+    race: [4.3, 1.85], raceFuture: [4.6, 2.0], tractor: [3.9, 2.2], tractorPolice: [3.9, 2.2], tractorShovel: [5.4, 2.4],
+};
+const KENNEY_SPECS = {};
 
 export async function loadAssets(onProgress) {
     const draco = new DRACOLoader();
@@ -88,6 +101,8 @@ export async function loadAssets(onProgress) {
         jobs.push(['lod:' + car.id, car.lod]);
         if (car.ao) jobs.push(['ao:' + car.id, car.ao]);
     }
+    for (const k of Object.keys(KENNEY)) jobs.push(['kenney:' + k, 'assets/models/vehicles/kenney/' + k + '.glb']);
+    for (const k of QUATERNIUS) jobs.push(['qchar:' + k, 'assets/models/people/quaternius/' + k + '.glb']);
     jobs.push(['person:michelle', 'assets/models/people/michelle.glb'], ['person:man', 'assets/models/people/man.glb'], ['anims', 'assets/models/people/anims.glb']);
     // optional user-supplied traffic cars: assets/models/traffic/manifest.json
     try {
@@ -111,9 +126,31 @@ export async function loadAssets(onProgress) {
         const ok = (res) => { progress.set(key, 1); done++; report(); loaded[key] = res; resolve(); };
         if (key.startsWith('ao:')) texLoader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; ok(t); }, onProg, reject);
         else if (key === 'anims') loader.load(url, (g) => ok({ clips: g.animations, scene: g.scene }), onProg, reject);
+        else if (key.startsWith('qchar:')) loader.load(url, (g) => ok({ scene: g.scene, clips: g.animations }), onProg, () => { progress.set(key, 1); resolve(); });
         else if (key.startsWith('extra:')) loader.load(url, (g) => ok(g.scene), onProg, () => { progress.set(key, 1); resolve(); });
         else loader.load(url, (g) => ok(key.startsWith('lod:') ? bakeLod(g.scene, CARS[key.slice(4)]) : g.scene), onProg, reject);
     })));
+    // Kenney cars: scale to real size and register a spec per model
+    for (const [k, [len, wid]] of Object.entries(KENNEY)) {
+        const scene = loaded['kenney:' + k];
+        if (!scene) continue;
+        const box = new THREE.Box3().setFromObject(scene);
+        const size = box.getSize(new THREE.Vector3());
+        const sideways = size.x > size.z;              // which local axis is the car's length
+        const s = len / Math.max(size.x, size.z);
+        const w = wid / ((sideways ? size.z : size.x) * s);
+        scene.scale.set(sideways ? s : s * w, s, sideways ? s * w : s);
+        scene.updateMatrixWorld(true);
+        const id = 'k_' + k;
+        KENNEY_SPECS[id] = {
+            id, name: k, kenney: true,
+            wheels: { fl: 'wheel_frontLeft', fr: 'wheel_frontRight', rl: 'wheel_backLeft', rr: 'wheel_backRight' },
+            hide: [], paint: /^paint/, glass: /^window$/, tail: /^lightBack$/, head: /^lightFront$/,
+            physics: CARS.concept.physics, eye: { up: 0.1, back: 0.5 }, defaultColor: null,
+        };
+        loaded['model:' + id] = scene;
+        loaded['lod:' + id] = scene;
+    }
     // register user-supplied traffic models
     for (const t of TRAFFIC_EXTRA) {
         const scene = loaded['extra:' + t.file];
@@ -296,7 +333,8 @@ function getBlobTexture() {
 }
 
 // Build a rig from a loaded scene. `lod` = cheap traffic version.
-export function createCar(id, { lod = false, color = null } = {}) {
+export function createCar(id, opts = {}) {
+    const { lod = false, color = null } = opts;
     const spec = specOf(id);
     const src = loaded[(lod ? 'lod:' : 'model:') + id];
     const scene = src.clone(true);
@@ -309,7 +347,7 @@ export function createCar(id, { lod = false, color = null } = {}) {
     for (const n of spec.hide) { const o = scene.getObjectByName(n); if (o) o.visible = false; }
 
     // --- materials ---
-    const mats = { paint: [], tail: [], head: [] };
+    const mats = { paint: [], tail: [], head: [], siren: [] };
     const paintColor = color || spec.defaultColor;
     const shared = new Map();
     scene.traverse((o) => {
@@ -322,7 +360,8 @@ export function createCar(id, { lod = false, color = null } = {}) {
             if (shared.has(m)) return shared.get(m);
             let r = m;
             const nm = m.name || '';
-            if (spec.paint.test(nm)) { r = makePaint(m, paintColor); mats.paint.push(r); }
+            if (spec.paint.test(nm) && (!opts.paintOnly || opts.paintOnly.test(nm))) { r = makePaint(m, paintColor || '#' + m.color.getHexString()); mats.paint.push(r); }
+            else if (spec.paint.test(nm)) { r = m.clone(); r.metalness = 0.4; r.roughness = 0.35; }
             else if (spec.glass.test(nm)) r = makeGlass();
             else if (spec.tail.test(nm)) {
                 r = new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a10, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.1, name: 'tail' });
@@ -330,6 +369,10 @@ export function createCar(id, { lod = false, color = null } = {}) {
             } else if (spec.head.test(nm)) {
                 r = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, emissive: 0xfff4e0, emissiveIntensity: 0, roughness: 0.05, metalness: 0.6, name: 'head' });
                 mats.head.push(r);
+            } else if (/^lightBlue$/.test(nm)) {
+                // police light bar: flashed by the police system
+                r = new THREE.MeshStandardMaterial({ color: 0x2050ff, emissive: 0x2a60ff, emissiveIntensity: 0.3, roughness: 0.3, name: 'siren' });
+                mats.siren.push(r);
             } else if (m.transmission > 0) {
                 r = makeGlass();
             } else if (!lod && /leather|interior|carpet|plastic|dashboard|panel|floormat/i.test(nm)) {
@@ -497,6 +540,18 @@ function personClips(kind) {
     const ls = leftDir(S), lt = leftDir(T);
     const yaw = Math.atan2(ls.x, ls.z) - Math.atan2(lt.x, lt.z);
     const R = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw), Rinv = R.clone().invert();
+    // The animations are authored relative to a T-pose, but the characters
+    // are bound in an A-pose. Build a matching T-pose reference for the target
+    // by swinging each bone (Mixamo bones point along +Y towards their child)
+    // onto the source T-pose direction; without this the forearms stuck out.
+    const Y = new THREE.Vector3(0, 1, 0);
+    for (const [key, tb] of T) {
+        tb.refRest = tb.worldRest;
+        if (!S.has(key)) continue;
+        const dS = Y.clone().applyQuaternion(S.get(key).worldRest).applyQuaternion(R);
+        const dT = Y.clone().applyQuaternion(tb.worldRest);
+        tb.refRest = new THREE.Quaternion().setFromUnitVectors(dT, dS).multiply(tb.worldRest);
+    }
     const out = {};
     for (const clip of src.clips) {
         if (clip.name === 'TPose') continue;
@@ -528,7 +583,7 @@ function personClips(kind) {
                     // world delta from rest, applied to the target rest
                     d.copy(srcW(key)).multiply(inv.copy(S.get(key).worldRest).invert());
                     d.premultiply(R).multiply(Rinv);    // express the delta in the target's facing
-                    w = d.clone().multiply(tb.worldRest);
+                    w = d.clone().multiply(tb.refRest);
                 } else {
                     const pw = tb.parent && tgtWorld.has(tb.parent) ? tgtWorld.get(tb.parent) : tb.parentWorldRest;
                     w = pw.clone().multiply(inv.copy(tb.parentWorldRest).invert().multiply(tb.worldRest));
@@ -546,11 +601,78 @@ function personClips(kind) {
     return out;
 }
 
+// Quaternius "Ultimate Modular" characters (CC0): own skeleton + 24 built-in
+// animations each, so they need no retargeting. m_ = men, w_ = women.
+export const QUATERNIUS = ['m_Adventurer', 'm_Farmer', 'm_Punk', 'm_Swat', 'm_Worker', 'w_Adventurer', 'w_Punk', 'w_Soldier', 'w_Suit', 'w_Worker'];
+export const CIVILIAN_KINDS = ['man', 'michelle', 'm_Adventurer', 'm_Farmer', 'm_Punk', 'm_Worker', 'w_Adventurer', 'w_Punk', 'w_Suit', 'w_Worker'];
+export const COP_KINDS = ['m_Swat', 'w_Soldier'];
+const Q_CLIPS = { Idle: 'Idle', Walk: 'Walk', Run: 'Run', GunIdle: 'Idle_Gun_Pointing', Shoot: 'Gun_Shoot', Hit: 'HitRecieve', Wave: 'Wave', Punch: 'Punch_Right' };
+// Quaternius bone names (after three.js strips the dots) -> Mixamo-style keys
+const Q_BONES = {
+    Hips: 'Hips', Chest: 'Chest', Spine2: 'Chest', Head: 'Head', Neck: 'Neck',
+    LeftArm: 'UpperArmL', LeftForeArm: 'LowerArmL', LeftHand: 'WristL', RightArm: 'UpperArmR', RightForeArm: 'LowerArmR', RightHand: 'WristR',
+    LeftUpLeg: 'UpperLegL', LeftLeg: 'LowerLegL', LeftFoot: 'FootL', RightUpLeg: 'UpperLegR', RightLeg: 'LowerLegR', RightFoot: 'FootR',
+};
+const KEEP_COLOUR = /skin|eye|brow|hair|moustache|beard|black|grey|white|teeth|mouth/i;
+
+function createQuaternius(rng, kind, opts) {
+    const src = loaded['qchar:' + kind];
+    const model = cloneSkinned(src.scene);
+    const root = new THREE.Group();
+    root.add(model);
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const h = box.max.y - box.min.y;
+    const sc = (kind[0] === 'w' ? 1.68 : 1.8) * rng.range(0.95, 1.05) / (h || 1);
+    model.scale.multiplyScalar(sc);
+    model.position.y = -box.min.y * sc;
+    // clothing colour variety: shift the hue of everything that isn't skin / eyes / hair
+    const hue = opts.hue ?? rng.range(-0.5, 0.5), light = rng.range(0.85, 1.2);
+    const cache = new Map();
+    model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.frustumCulled = false;
+        const tint = (m) => {
+            if (cache.has(m)) return cache.get(m);
+            const c = m.clone();
+            if (!KEEP_COLOUR.test(m.name) && !opts.noTint) {
+                const hsl = {}; c.color.getHSL(hsl);
+                c.color.setHSL((hsl.h + hue + 1) % 1, hsl.s, Math.min(0.9, hsl.l * light));
+            }
+            if (opts.tint && !KEEP_COLOUR.test(m.name)) c.color.lerp(new THREE.Color(opts.tint), 0.5);
+            cache.set(m, c);
+            return c;
+        };
+        o.material = Array.isArray(o.material) ? o.material.map(tint) : tint(o.material);
+    });
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = {};
+    for (const [name, clipName] of Object.entries(Q_CLIPS)) {
+        const clip = src.clips.find(c => c.name.endsWith('|' + clipName) || c.name === clipName);
+        if (!clip) continue;
+        actions[name] = mixer.clipAction(clip);
+        actions[name].play();
+        actions[name].setEffectiveWeight(name === 'Walk' ? 1 : 0);
+    }
+    if (actions.Walk) actions.Walk.time = rng.range(0, 1);
+    const raw = {};
+    model.traverse((o) => { if (o.isBone) raw[o.name.replace(/[.:]/g, '')] = o; });
+    const bones = {};
+    for (const [k, n] of Object.entries(Q_BONES)) if (raw[n]) bones[k] = raw[n];
+    // natural speeds of the clips (m/s) so feet don't slide
+    return { root, model, mixer, actions, kind, bones, walkSpeed: 1.6, runSpeed: 4.6, quaternius: true };
+}
+
 const OUTFIT = ['#2b3a55', '#5a2b2b', '#2f4a32', '#6b6b6b', '#1f1f22', '#7a5a3a', '#3b5d8a', '#8a3b5d', '#c9b48a', '#e0e0e0', '#4a3b6b'];
 
 // opts: { kind: 'man'|'michelle', top: '#rrggbb', bottom: '#rrggbb', tint: '#rrggbb' }
 export function createPerson(rng, opts = {}) {
-    const kind = opts.kind || (rng.chance(0.5) ? 'michelle' : 'man');
+    const kind = opts.kind || rng.pick(CIVILIAN_KINDS.filter(k => !QUATERNIUS.includes(k) || loaded['qchar:' + k]));
+    if (QUATERNIUS.includes(kind)) {
+        if (loaded['qchar:' + kind]) return createQuaternius(rng, kind, opts);
+        return createPerson(rng, { ...opts, kind: kind[0] === 'w' ? 'michelle' : 'man' });
+    }
     const src = loaded['person:' + kind];
     const model = cloneSkinned(src);
     const root = new THREE.Group();
@@ -595,5 +717,5 @@ export function createPerson(rng, opts = {}) {
     actions.Walk.time = rng.range(0, 1);
     const bones = {};
     model.traverse((o) => { if (o.isBone) bones[boneKey(o.name)] = o; });
-    return { root, model, mixer, actions, kind, bones };
+    return { root, model, mixer, actions, kind, bones, walkSpeed: 1.35, runSpeed: 3.9 };
 }

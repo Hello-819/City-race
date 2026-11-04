@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>City Race</title>
+    <title>Harbor Heat</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2214%22 fill=%22%23ff3b30%22/%3E%3C/svg%3E">
     <link rel="stylesheet" href="style.css">
     <script type="importmap">
@@ -19,7 +19,7 @@
     <canvas id="gameCanvas"></canvas>
 
     <div id="loading" class="screen active">
-        <div class="brand">CITY<span>RACE</span></div>
+        <div class="brand">HARBOR<span>HEAT</span></div>
         <div class="bar"><div id="load-bar"></div></div>
         <div id="load-text">Loading models…</div>
     </div>
@@ -27,10 +27,11 @@
     <!-- Title menu: Start / Options / Quit only -->
     <div id="menu" class="screen">
         <div class="menu-panel title-menu">
-            <div class="brand small">CITY<span>RACE</span></div>
-            <div class="subtitle">One island. One endless day and night.</div>
+            <div class="brand small">HARBOR<span>HEAT</span></div>
+            <div class="subtitle">Isla Coral · one island, one endless day and night.</div>
             <button id="btn-start" class="primary">Start</button>
             <button id="btn-settings" class="ghost">Options</button>
+            <button id="btn-menu-controls" class="ghost">Controls</button>
             <button id="btn-quit-game" class="ghost">Quit</button>
             <div id="save-info" class="hint"></div>
         </div>
@@ -86,16 +87,18 @@
                 <tr><td>Hold <kbd>Q</kbd> / <kbd>Tab</kbd></td><td>Weapon wheel (slows time; release to equip)</td></tr>
                 <tr><td>Mouse wheel</td><td>Next / previous weapon</td></tr>
                 <tr><td><kbd>R</kbd></td><td>Reload</td></tr>
-                <tr><td><kbd>E</kbd></td><td>Interact / enter doors / shop counter</td></tr>
+                <tr><td><kbd>E</kbd></td><td>Doors, shop counters, start missions (M) and courier jobs (J)</td></tr>
                 <tr><th colspan="2">Vehicles</th></tr>
-                <tr><td><kbd>F</kbd></td><td>Enter / exit vehicle</td></tr>
+                <tr><td><kbd>F</kbd></td><td>Enter / exit / steal a vehicle</td></tr>
+                <tr><td>Right + left mouse</td><td>Drive-by shooting (pistol or SMG)</td></tr>
                 <tr><td><kbd>W</kbd> <kbd>S</kbd></td><td>Throttle / brake &amp; reverse</td></tr>
                 <tr><td><kbd>A</kbd> <kbd>D</kbd></td><td>Steer</td></tr>
                 <tr><td><kbd>Space</kbd></td><td>Handbrake</td></tr>
                 <tr><td><kbd>H</kbd></td><td>Horn</td></tr>
                 <tr><td><kbd>C</kbd> / <kbd>B</kbd></td><td>Change camera / look back</td></tr>
                 <tr><th colspan="2">General</th></tr>
-                <tr><td><kbd>M</kbd></td><td>Map</td></tr>
+                <tr><td><kbd>M</kbd></td><td>Map (click to set a GPS waypoint)</td></tr>
+                <tr><td><kbd>F1</kbd> / <kbd>F3</kbd></td><td>Controls / performance overlay</td></tr>
                 <tr><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Pause</td></tr>
                 <tr><td>Hold <kbd>T</kbd></td><td>Fast-forward time</td></tr>
             </table>
@@ -117,6 +120,7 @@
             <canvas id="radar" width="220" height="220"></canvas>
             <div class="bars"><div class="bar-bg"><i id="bar-health"></i></div><div class="bar-bg armour"><i id="bar-armour"></i></div></div>
         </div>
+        <div id="help-hint"><kbd>F1</kbd> Controls</div>
         <div id="speedo"><div id="speedo-name"></div><span id="speedo-val">0</span> <span id="speedo-unit">km/h</span><div class="veh-bar"><i id="veh-health"></i></div></div>
         <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
         <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
@@ -139,6 +143,7 @@
     </div>
     <canvas id="fullmap"></canvas>
     <div id="fade"></div>
+    <div id="perf"></div>
 
     <div id="pause" class="screen modal">
         <div class="modal-box">

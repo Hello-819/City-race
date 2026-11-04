@@ -48,7 +48,7 @@ export class Jobs {
                 const b = map.blocks[rng.int(0, map.blocks.length - 1)];
                 x = rng.chance(0.5) ? b.x0 + 1 : b.x1 - 1; y = rng.chance(0.5) ? b.y0 + 1 : b.y1 - 1;
             } else {
-                x = rng.range(-map.half + 400, map.half - 400); y = rng.range(-map.half + 400, map.half - 400);
+                x = rng.range(map.bounds.x0 + 400, map.bounds.x1 - 400); y = rng.range(map.bounds.y0 + 400, map.bounds.y1 - 400);
                 const s = map.surfaceAt(x, y);
                 if (s.water > 0 || s.h < 0.8) continue;
                 map.collidersNear(x, y, 3);
@@ -101,7 +101,7 @@ export class Jobs {
             }
             if (b.mesh) b.mesh.visible = near;
         }
-        if (!this.job && !g.player.vehicle && input.actHit('interact')) {
+        if (!this.job && !g.player.vehicle && !(g.missions && g.missions.active) && input.actHit('interact')) {
             const b = this.boards.find(bb => Math.hypot(bb.x - pos.x, bb.y - pos.y) < 1.8);
             if (b) this._startJob(b);
         }
@@ -139,6 +139,7 @@ export class Jobs {
         else { const r = map.nearestRoad(board.x + 900, board.y); dest = { x: r.x, y: r.y, name: 'the drop-off' }; }
         const dist = Math.hypot(dest.x - board.x, dest.y - board.y);
         this.job = { ...dest, dist, time: dist / 11 + 40, start: performance.now() };
+        g.gpsT = 0;   // show the GPS route right away
         this.destMarker.position.set(dest.x, map.surfaceAt(dest.x, dest.y).h, -dest.y);
         this.destMarker.visible = true;
         g.hud.notify(`Courier job: take the parcel to <b>${dest.name}</b> (${Math.round(dist)} m). Follow the yellow blip on the radar.`, 6);

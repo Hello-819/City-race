@@ -27,7 +27,7 @@ try {
 } catch (e) {
     $('loading').classList.remove('active');
     $('error').classList.add('active');
-    $('error').textContent = 'WebGL is not available in this browser. City Race needs WebGL to run.';
+    $('error').textContent = 'WebGL is not available in this browser. Harbor Heat needs WebGL to run.';
     throw e;
 }
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -45,13 +45,17 @@ env.fogNear = CONFIG.time.fogNear; env.fogFar = CONFIG.time.fogFar;
 let state = 'loading';      // loading | menu | playing | paused
 let game = null;
 
+// Graphics preset -> renderer + view distance. `scale` (adaptive quality)
+// shrinks view distance and resolution when the frame rate drops.
+let qScale = 1;
 function applyQuality() {
-    const q = settings.quality;
+    const Q = CONFIG.quality[settings.quality] || CONFIG.quality.medium;
     const dpr = window.devicePixelRatio || 1;
-    renderer.setPixelRatio(q === 'high' ? Math.min(dpr, 2) : q === 'medium' ? Math.min(dpr, 1.25) : 0.8);
-    renderer.shadowMap.enabled = q !== 'low';
-    env.sunLight.castShadow = q !== 'low';
-    const size = q === 'high' ? 4096 : 2048;
+    renderer.setPixelRatio(Math.min(dpr, Q.pixelRatio) * (0.7 + 0.3 * qScale));
+    renderer.shadowMap.enabled = Q.shadows;
+    env.sunLight.castShadow = Q.shadows;
+    applyViewDistance();
+    const size = Q.shadowSize;
     if (env.sunLight.shadow.mapSize.x !== size) {
         env.sunLight.shadow.mapSize.set(size, size);
         if (env.sunLight.shadow.map) { env.sunLight.shadow.map.dispose(); env.sunLight.shadow.map = null; }
@@ -59,6 +63,42 @@ function applyQuality() {
     scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
     resize();
 }
+function applyViewDistance() {
+    const Q = CONFIG.quality[settings.quality] || CONFIG.quality.medium;
+    const far = Math.max(CONFIG.quality.adaptive.minFar, Q.far * qScale);
+    env.fogFar = far * 1.45;
+    if (game) {
+        game.streamer.farRadius = far;
+        game.streamer.nearRadius = Math.min(Q.near, far * 0.6);
+        game.peds.maxCount = Q.peds;
+        game.traffic.density = Q.traffic;
+    }
+}
+
+// Adaptive quality: every 3 s compare the average FPS with the target.
+let adaptT = 0, adaptFrames = 0;
+function adaptQuality(dt) {
+    adaptT += dt; adaptFrames++;
+    if (adaptT < 3) return;
+    const fps = adaptFrames / adaptT;
+    adaptT = 0; adaptFrames = 0;
+    const A = CONFIG.quality.adaptive;
+    const before = qScale;
+    if (fps < A.targetFps - 5) qScale = Math.max(0.45, qScale - A.step);
+    else if (fps > A.targetFps + 8) qScale = Math.min(1, qScale + A.step / 2);
+    if (qScale !== before) applyQuality();
+}
+
+// F3: performance overlay
+let perfOn = false;
+function updatePerf() {
+    const el = $('perf');
+    if (!perfOn || !game) { el.style.display = 'none'; return; }
+    const i = renderer.info.render;
+    el.style.display = 'block';
+    el.textContent = `${(window.__fps || 0).toFixed(0)} fps · ${i.calls} draws · ${(i.triangles / 1000).toFixed(0)}k tris · view ${game.streamer.farRadius.toFixed(0)} m (x${qScale.toFixed(2)}) · chunks ${game.streamer.stats.near}+${game.streamer.stats.far} · cars ${game.vehicles.length} · peds ${game.peds.active.length}`;
+}
+
 function applyOptions() {
     if (game) {
         game.hud.units = settings.units;
@@ -99,9 +139,13 @@ $('sensitivity').value = settings.sensitivity;
 $('sensitivity').oninput = (e) => { settings.sensitivity = +e.target.value; saveSettings(); applyOptions(); };
 $('btn-settings').onclick = () => show('settings');
 $('btn-controls').onclick = () => show('controls');
+$('btn-menu-controls').onclick = () => show('controls');
 $('btn-pause-controls').onclick = () => show('controls');
 $('btn-pause-settings').onclick = () => show('settings');
-document.querySelectorAll('.modal .close').forEach((b) => b.onclick = () => b.closest('.modal').classList.remove('active'));
+document.querySelectorAll('.modal .close').forEach((b) => b.onclick = () => {
+    b.closest('.modal').classList.remove('active');
+    if (helpOverlay && b.closest('#controls')) { helpOverlay = false; resume(); }
+});
 $('btn-quit-game').onclick = () => { show('menu', false); show('quit-screen'); try { window.close(); } catch { /* browsers may refuse */ } };
 $('btn-unquit').onclick = () => { show('quit-screen', false); show('menu'); };
 $('btn-reset-save').onclick = () => {
@@ -133,6 +177,7 @@ function startGame() {
         requestAnimationFrame(() => setTimeout(() => {
             game = new Game({ scene, camera, renderer, env, input, audio });
             applyOptions();
+            applyViewDistance();
             game.start();
             show('loading', false);
             enterPlay();
@@ -185,27 +230,36 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 // ------------------------------------------------------------- loop
 let last = performance.now();
 let fpsAcc = 0, fpsFrames = 0, saveTimer = 0;
+let helpOverlay = false;      // controls opened with F1: closing it resumes play
 function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
     last = now;
     input.update(dt);
     if (state === 'playing' && game) {
-        if (input.actHit('pause') && !game.mapOpen && !game.wantsCursor) pause();
+        if (input.actHit('controls') && !game.wantsCursor) { pause(); show('pause', false); show('controls'); helpOverlay = true; }
+        else if (input.actHit('pause') && !game.mapOpen && !game.wantsCursor) pause();
         else {
+            if (input.hit('F3')) perfOn = !perfOn;
             game.update(dt);
+            adaptQuality(dt);
             $('fullmap').classList.toggle('active', game.mapOpen);
             saveTimer += dt;
             if (saveTimer > 20) { saveTimer = 0; game.snapshot(); }
         }
         renderer.render(game.activeScene, camera);
+    } else if (state === 'paused' && helpOverlay && input.hit('F1', 'Escape')) {
+        helpOverlay = false; show('controls', false); resume();
     } else if ((state === 'menu' || state === 'paused') && game) {
         renderer.render(game.activeScene, camera);
     }
+    updatePerf();
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc > 1) { window.__fps = fpsFrames / fpsAcc; fpsAcc = 0; fpsFrames = 0; }
     input.endFrame();
 }
+
+$('fullmap').addEventListener('click', (e) => { if (game && game.mapOpen) game.mapClick(e.clientX, e.clientY); });
 
 window.addEventListener('beforeunload', () => { if (game) game.snapshot(); });
 

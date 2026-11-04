@@ -41,6 +41,7 @@ export class VehicleEntity {
     // --- damage: smoke below 35 %, fire at 0, explosion a few seconds later ---
     damage(amount, by = null) {
         if (!this.alive || amount <= 0) return;
+        this.sleeping = false;
         this.health -= amount;
         if (by) this.lastHitBy = by;
         if (this.health <= 0 && this.burnT === undefined) this.burnT = 4 + Math.random() * 2;
@@ -84,8 +85,10 @@ export class VehicleEntity {
     get th() { return this.veh.th; }
     get speed() { return this.veh.speed; }
 
-    place(x, y, th) {
-        const s = this.world.map.surfaceAt(x, y, _surf);
+    // zHint: height of the surface to place on (deck vs road below)
+    place(x, y, th, zHint = null) {
+        const s = this.world.map.surfaceAt(x, y, _surf, zHint);
+        this.vz = 0;
         this.veh.reset(x, y, th, s.h);
         this.zSmooth = s.h;
         this.pitch = this.roll = this.pitchV = this.rollV = 0;
@@ -97,7 +100,7 @@ export class VehicleEntity {
         const v = this.veh, map = this.world.map;
         this.impacts.length = 0;
         this.scrapes.length = 0;
-        const surf = map.surfaceAt(v.x, v.y, _surf);
+        const surf = map.surfaceAt(v.x, v.y, _surf, this.zSmooth + 0.5);
         this.surface = surf.kind;
         // deep water floods the engine
         this.inWater = surf.water;
@@ -116,9 +119,9 @@ export class VehicleEntity {
         }
         if (steps === 10) this.acc = 0;
         // the map edge is open sea; a gentle current pushes back anyone who goes too far
-        const lim = map.half - 60;
-        if (Math.abs(v.x) > lim) v.vx -= Math.sign(v.x) * 6 * dt;
-        if (Math.abs(v.y) > lim) v.vy -= Math.sign(v.y) * 6 * dt;
+        const B = map.bounds;
+        if (v.x < B.x0 + 60) v.vx += 6 * dt; else if (v.x > B.x1 - 60) v.vx -= 6 * dt;
+        if (v.y < B.y0 + 60) v.vy += 6 * dt; else if (v.y > B.y1 - 60) v.vy -= 6 * dt;
         this.syncVisual(dt);
         this._updateDamage(dt);
         return this.impacts;
@@ -127,6 +130,7 @@ export class VehicleEntity {
     _collide() {
         const v = this.veh, P = v.P;
         for (const b of _cols.boxes) {
+            if (b.zMax !== undefined && (v.z > b.zMax - 0.3 || v.z + 1.5 < b.zMin)) continue;   // railing above / below us
             const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
             const hit = obbOverlap(v.x, v.y, v.th, P.halfLength, P.halfWidth, cx, cy, 0, (b.x1 - b.x0) / 2, (b.y1 - b.y0) / 2);
             if (!hit) continue;
@@ -139,6 +143,8 @@ export class VehicleEntity {
         for (const c of _cols.circles) {
             const dx = c.x - v.x, dy = c.y - v.y;
             if (dx * dx + dy * dy > 36) continue;
+            if (c.zMax !== undefined && v.z > c.zMax - 0.3) continue;      // driving over a pillar
+            if (c.fallen) continue;
             const lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs;
             const qx = clamp(lx, -P.halfLength, P.halfLength), qy = clamp(ly, -P.halfWidth, P.halfWidth);
             const ex = lx - qx, ey = ly - qy;
@@ -152,6 +158,14 @@ export class VehicleEntity {
                 if (px < py) { const sx = -Math.sign(lx); nx = sx * cs; ny = sx * sn; depth = px + c.r; }
                 else { const sy = -Math.sign(ly); nx = -sy * sn; ny = sy * cs; depth = py + c.r; }
             }
+            // fast enough: lamp posts, trees and palms snap and fall instead of stopping the car
+            const closing = -(v.vx * nx + v.vy * ny);
+            if (KNOCKABLE[c.type] && closing > KNOCKABLE[c.type] * (c.s || 1) && this.world.game) {
+                this.world.game.knockProp(c, v.vx, v.vy);
+                v.vx *= 0.82; v.vy *= 0.82;
+                this.impacts.push({ speed: closing * 0.35, nx, ny, kind: 'prop', prop: c });
+                continue;
+            }
             const s = v.collide(nx, ny, depth, 0.15, 0.4);
             if (s > 0.5) this.impacts.push({ speed: s * 1.2, nx, ny, kind: 'prop', prop: c });
         }
@@ -162,13 +176,25 @@ export class VehicleEntity {
         const v = this.veh, rig = this.rig, map = this.world.map;
         const c = Math.cos(v.th), s = Math.sin(v.th);
         const L = v.P.L, W = rig.track || 1.6;
-        const hAt = (fx, fy) => map.surfaceAt(v.x + fx, v.y + fy, _surf).h;
+        const hint = this.zSmooth + 0.6;
+        const hAt = (fx, fy) => map.surfaceAt(v.x + fx, v.y + fy, _surf, hint).h;
         const hF = hAt(c * L / 2, s * L / 2), hB = hAt(-c * L / 2, -s * L / 2);
         const hL = hAt(-s * W / 2, c * W / 2), hR = hAt(s * W / 2, -c * W / 2);
         let zT = (hF + hB + hL + hR) / 4;
-        if (this.inWater > 0.9) zT = Math.max(zT, CONFIG.map.seaLevel - 1.1);
-        this.zSmooth = dt > 0 ? damp(this.zSmooth, zT, 25, dt) : zT;
-        if (Math.abs(this.zSmooth - zT) > 1.5) this.zSmooth = zT;
+        if (this.inWater > 0.9) zT = Math.max(zT, map.waterLevel(v.x, v.y) - 1.1);
+        // gravity: drive off a ledge / bridge and you fall; otherwise follow the road
+        this.vz = this.vz || 0;
+        if (dt > 0 && zT < this.zSmooth - 0.35) {
+            this.vz -= 9.81 * dt;
+            this.zSmooth = Math.max(zT, this.zSmooth + this.vz * dt);
+            this.airborne = true;
+        } else {
+            if (this.airborne && this.vz < -7) { this.damage((-this.vz - 7) * 60, this.driver === 'player' ? 'player' : null); this.landed = -this.vz; }
+            this.airborne = false;
+            this.vz = 0;
+            this.zSmooth = dt > 0 ? damp(this.zSmooth, zT, 25, dt) : zT;
+            if (zT - this.zSmooth > 1.5) this.zSmooth = zT;
+        }
         v.z = this.zSmooth;
         if (this.hop) { this.hopV = (this.hopV ?? 6) - 18 * dt; this.hop = Math.max(0, this.hop + this.hopV * dt); if (this.hop === 0) this.hopV = undefined; }
         rig.root.position.set(v.x, this.zSmooth + (this.hop || 0), -v.y);
@@ -188,6 +214,11 @@ export class VehicleEntity {
             if (w.front) w.steer.rotation.y = v.steer;
         }
         if (rig.steering) rig.steering.pivot.quaternion.setFromAxisAngle(rig.steering.axis, v.steer * 9);
+        if (rig.driverFigure) {
+            // someone at the wheel (hidden in the player's own cockpit view)
+            const g = this.world.game;
+            rig.driverFigure.visible = !!this.driver && this.alive && !(this.driver === 'player' && g && g.cam.rig.current === 'cockpit');
+        }
         const brake = v.brake > 0.05 || v.handbrake > 0;
         const tail = (this.lightsOn ? 1.0 : 0.25) + (brake && this.driver ? 3.0 : 0);
         for (const m of rig.mats.tail) m.emissiveIntensity = tail;
@@ -223,4 +254,6 @@ export class VehicleEntity {
     }
 }
 
+// prop type -> closing speed (m/s) needed to knock it down
+const KNOCKABLE = { lamp: 7, palm: 9, tree: 13, pine: 15 };
 const DEAD = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
